@@ -147,7 +147,7 @@ public partial class DevPortalWindow : MyWindow
                         {
                             Title = "Hello world!",
                             Content = "Welcome to ClassPixelPro!",
-                            HeroImage = "https://res.classpixelpro.tech/banners/banner-v2.webp"
+                            HeroImage = "https://class.imzcz.cn/logo.png.webp"
                         },
                         new TutorialSentence()
                         {
@@ -173,7 +173,7 @@ public partial class DevPortalWindow : MyWindow
                         {
                             Title = "Hello world!",
                             Content = "Welcome to ClassPixelPro!",
-                            HeroImage = "https://res.classpixelpro.tech/banners/banner-v2.webp",
+                            HeroImage = "https://class.imzcz.cn/logo.png.webp",
                             TargetSelector = "TabControl.compact TabItem"
                         },
                         new TutorialSentence()

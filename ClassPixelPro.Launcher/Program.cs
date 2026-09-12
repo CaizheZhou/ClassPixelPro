@@ -58,7 +58,7 @@ var installation = Directory.GetDirectories(root)
 
 if (installation == null)
 {
-    ShowError("找不到有效的 ClassPixelPro 版本，可能是安装已损坏。请在 https://classpixelpro.tech/download 重新下载并安装 ClassPixelPro。");
+    ShowError("找不到有效的 ClassPixelPro 版本，可能是安装已损坏。请在 https://class.imzcz.cn/#/download 重新下载并安装 ClassPixelPro。");
     return 1;
 }
 

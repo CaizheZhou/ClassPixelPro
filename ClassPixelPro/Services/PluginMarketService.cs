@@ -209,7 +209,7 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
         var mirrors = SettingsService.Settings.OfficialIndexMirrors.Count == 0
             ? FallbackMirrors
             : SettingsService.Settings.OfficialIndexMirrors;
-        const string repo = "https://get.classpixelpro.tech/d/ClassPixelPro-Ningbo-S3/classpixelpro/plugin/index.zip?time={time}";
+        const string repo = "https://class.imzcz.cn/api/plugin/index?time={time}";
         return SettingsService.Settings.PluginIndexes.Where(x => !string.IsNullOrWhiteSpace(x.Url)).Append(new PluginIndexInfo()
         {
             Id = DefaultPluginIndexKey,

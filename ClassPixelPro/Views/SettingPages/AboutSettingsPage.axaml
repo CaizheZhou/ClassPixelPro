@@ -159,11 +159,11 @@
                                 </Style>
                             </WrapPanel.Styles>
                             <HyperlinkButton Click="SettingsExpanderItemShowOssLicense_OnClick"
-                                             CommandParameter="https://classpixelpro.tech">
+                                             CommandParameter="https://class.imzcz.cn">
                                 <TextBlock Text="开放源代码许可"/>
                             </HyperlinkButton>
                             <HyperlinkButton Click="ButtonPrivacy_OnClick"
-                                             CommandParameter="https://docs.classpixelpro.tech">
+                                             CommandParameter="https://class.imzcz.cn/docs">
                                 <TextBlock Text="隐私政策"/>
                             </HyperlinkButton>
                         </WrapPanel>
@@ -182,7 +182,7 @@
                                 </Style>
                             </WrapPanel.Styles>
                             <HyperlinkButton Click="UriNavigationCommands_OnClick"
-                                             CommandParameter="https://docs.classpixelpro.tech">
+                                             CommandParameter="https://class.imzcz.cn/docs">
                                 <TextBlock Text="帮助文档"/>
                             </HyperlinkButton>
                         </WrapPanel>

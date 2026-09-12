@@ -284,7 +284,7 @@ public partial class AboutSettingsPage : SettingsPageBase
             .SetTextAsync("5oS/5oiR5Lus5Zyo6YKj6bKc6Iqx6Iqs6Iqz55qE6KW/6aOO5bC95aS06YeN6YCi44CC");
         var advancedImage = new AdvancedImage((Uri?)null)
         {
-            Source = "https://res.classpixelpro.tech/banners/reunion.webp",
+            Source = "https://class.imzcz.cn/logo.png",
         };
         var contentDialog = new ContentDialog()
         {
@@ -297,7 +297,7 @@ public partial class AboutSettingsPage : SettingsPageBase
         var r = await contentDialog.ShowAsync();
         if (r == ContentDialogResult.Secondary)
         {
-            IAppHost.GetService<IUriNavigationService>().NavigateWrapped(new Uri("https://res.classpixelpro.tech/banners/reunion.webp"));
+            IAppHost.GetService<IUriNavigationService>().NavigateWrapped(new Uri("https://class.imzcz.cn/logo.png"));
         }
     }
 }

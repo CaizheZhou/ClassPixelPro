@@ -65,7 +65,7 @@ public class AnnouncementService : ObservableRecipient, IAnnouncementService
         {
             var time = (long)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
             AnnouncementsInternal =
-                await WebRequestHelper.Default.SaveJson<ObservableCollection<Announcement>>(new Uri($"https://get.classpixelpro.tech/d/ClassPixelPro-Ningbo-S3/classpixelpro/announcements.json?time={time}"), Path.Combine(CommonDirectories.AppCacheFolderPath,
+                await WebRequestHelper.Default.SaveJson<ObservableCollection<Announcement>>(new Uri($"https://class.imzcz.cn/api/announcements?time={time}"), Path.Combine(CommonDirectories.AppCacheFolderPath,
                     "Announcements.json"), verifySign: true, publicKey: MetadataPublisherPublicKey);
         }
         catch (Exception e)

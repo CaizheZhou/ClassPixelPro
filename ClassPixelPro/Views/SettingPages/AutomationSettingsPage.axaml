@@ -40,7 +40,7 @@
                                                        Glyph="&#xE23C;"
                                                        Text="帮助…"
                                                        Command="{x:Static ci:UriNavigationCommands.UriNavigationCommand}"
-                                                       CommandParameter="https://docs.classpixelpro.tech/app/automation.html"
+                                                       CommandParameter="https://class.imzcz.cn/docs/start"
                                                        Theme="{StaticResource TransparentButton}"
                                                        ToolTip.Tip="打开自动化帮助文档…" />
                                 <ToggleSwitch IsChecked="{Binding ViewModel.SettingsService.Settings.IsAutomationEnabled}" />
@@ -309,9 +309,9 @@
                                 <Button Margin="0 16 0 0"
                                         HorizontalAlignment="Center"
                                         Command="{x:Static ci:UriNavigationCommands.UriNavigationCommand}"
-                                        CommandParameter="https://docs.classpixelpro.tech/app/automation.html"
+                                        CommandParameter="https://class.imzcz.cn/docs/start"
                                         Theme="{StaticResource TransparentButton}"
-                                        ToolTip.Tip="https://docs.classpixelpro.tech/app/automation">
+                                        ToolTip.Tip="https://class.imzcz.cn/docs/start">
                                     <ci:IconText Glyph="&#xEC2D;"
                                                  Text="阅读自动化帮助"
                                                  Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
@@ -371,9 +371,9 @@
 　比如修改应用设置、打开应用，等等。</TextBlock>
                 <Button Margin="0 15"
                         Command="{x:Static ci:UriNavigationCommands.UriNavigationCommand}"
-                        CommandParameter="https://docs.classpixelpro.tech/app/automation.html"
+                        CommandParameter="https://class.imzcz.cn/docs/start"
                         Theme="{StaticResource TransparentButton}"
-                        ToolTip.Tip="https://docs.classpixelpro.tech/app/automation">
+                        ToolTip.Tip="https://class.imzcz.cn/docs/start">
                     <ci:IconText Glyph="&#xEC2D;"
                                  Text="阅读自动化帮助"
                                  Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />

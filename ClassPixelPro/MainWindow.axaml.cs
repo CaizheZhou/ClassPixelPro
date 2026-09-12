@@ -1151,7 +1151,7 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
 
     private void MenuItemHelps_OnClick(object sender, EventArgs e)
     {
-        UriNavigationService.Navigate(new Uri("https://docs.classpixelpro.tech/app/"));
+        UriNavigationService.Navigate(new Uri("https://class.imzcz.cn/docs/start"));
     }
 
     private void MenuItemUpdates_OnClick(object sender, EventArgs e)

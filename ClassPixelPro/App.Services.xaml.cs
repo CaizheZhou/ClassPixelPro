@@ -301,7 +301,7 @@ public partial class App
             Description = "ClassPixelPro 的经典外观。",
             Banner = "avares://ClassPixelPro/Assets/XamlThemePreviews/classpixelpro.classic.png",
             Author = "ClassPixelPro",
-            Url = "https://github.com/ClassPixelPro/ClassPixelPro"
+            Url = ""
         });
         services.AddXamlTheme(new Uri("avares://ClassPixelPro/XamlThemes/FluentTheme/Styles.axaml"), new ThemeManifest()
         {
@@ -310,7 +310,7 @@ public partial class App
             Description = "焕然一新的 ClassPixelPro 外观。",
             Banner = "avares://ClassPixelPro/Assets/XamlThemePreviews/classpixelpro.fluent.png",
             Author = "ClassPixelPro",
-            Url = "https://github.com/ClassPixelPro/ClassPixelPro",
+            Url = "",
             VerticalSafeAreaPx = 20
         });
         // 教程

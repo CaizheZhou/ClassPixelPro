@@ -58,7 +58,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
     private DistributionInfoClient _distributionInfo;
     private string _currentWorkingMessage = "";
 
-    private const string PhainonRootUrl = "https://distribution.classpixelpro.tech";
+    private const string PhainonRootUrl = "https://class.imzcz.cn";
 
     internal static string UpdateCachePath { get; } = Path.Combine(CommonDirectories.AppCacheFolderPath, "Update");
 

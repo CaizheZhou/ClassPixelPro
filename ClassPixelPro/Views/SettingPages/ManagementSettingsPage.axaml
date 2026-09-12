@@ -43,7 +43,7 @@
                 <controls1:SettingsExpanderItem Command="{x:Static ci:UriNavigationCommands.UriNavigationCommand}"
                                                 IsClickEnabled="True"
                                                 ActionIconSource="{ci:FluentIconSource &#xEC2E;}"
-                                                CommandParameter="https://docs.classpixelpro.tech/management/">
+                                                CommandParameter="https://class.imzcz.cn/docs/management">
                     <Grid>
                         <TextBlock Text="了解更多" />
                     </Grid>

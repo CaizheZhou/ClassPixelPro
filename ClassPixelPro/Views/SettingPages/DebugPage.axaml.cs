@@ -205,7 +205,7 @@ public partial class DebugPage : SettingsPageBase
         {
             Title = "测试通知",
             Body = "Hello world!",
-            HeroImageUri = new Uri("https://res.classpixelpro.tech/banners/banner-v2.webp"),
+            HeroImageUri = new Uri("https://class.imzcz.cn/logo.png.webp"),
             LogoImageUri = new Uri("avares://ClassPixelPro/Assets/HoYoStickers/白厄_没事.png"),
             Buttons =
             {

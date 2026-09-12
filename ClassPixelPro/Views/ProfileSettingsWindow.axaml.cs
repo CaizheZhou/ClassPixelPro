@@ -287,7 +287,7 @@ public partial class ProfileSettingsWindow : MyWindow
     
     private void ButtonHelp_OnClick(object? sender, RoutedEventArgs e)
     {
-        UriNavigationCommands.UriNavigationCommand.Execute("https://docs.classpixelpro.tech/app/profile/");
+        UriNavigationCommands.UriNavigationCommand.Execute("https://class.imzcz.cn/docs/start");
     }
 
     #endregion

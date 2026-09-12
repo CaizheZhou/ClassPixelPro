@@ -71,7 +71,7 @@ public class Settings : ObservableRecipient, ILessonControlSettings, INotificati
     {
     };
 
-    private string _selectedChannel = "https://install.appcenter.ms/api/v0.1/apps/hellowrc/classpixelpro/distribution_groups/public";
+    private string _selectedChannel = "";
     private DateTime _lastCheckUpdateTime = DateTime.MinValue;
     private UpdateStatus _lastUpdateStatus = UpdateStatus.UpToDate;
     private int _updateMode = 3;
