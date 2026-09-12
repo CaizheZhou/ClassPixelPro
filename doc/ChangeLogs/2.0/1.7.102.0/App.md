@@ -3,9 +3,9 @@
 > [!caution]
 > # 警告！请不要使用此版本
 >
-> 当前版本为 2.0 的早期技术预览版本，不要在生产环境使用此版本。请使用[稳定版 1.7.0.1](https://github.com/ClassIsland/ClassIsland/releases/tag/1.7.0.1)。本版本仍有大量功能未移植，仅作跨平台可行性验证，欢迎在 Issue 中汇报您使用时遇到的问题。
+> 当前版本为 2.0 的早期技术预览版本，不要在生产环境使用此版本。请使用[稳定版 1.7.0.1](https://github.com/ClassPixelPro/ClassPixelPro/releases/tag/1.7.0.1)。本版本仍有大量功能未移植，仅作跨平台可行性验证，欢迎在 Issue 中汇报您使用时遇到的问题。
 
-![Banner](https://res.classisland.tech/banners/2.0/1.7.102.0.webp)
+![Banner](https://res.classpixelpro.tech/banners/2.0/1.7.102.0.webp)
 
 2.0 - Khaslana (卡厄斯兰那)
 
@@ -25,10 +25,10 @@
 
 - 【提醒】修复提醒图标大小不正确的问题
 - 【提醒】修复提醒间动画衔接问题
-- 【提醒】修复链式提醒由于没有注册提醒完毕后处理操作，导致提醒在正在播放队列中没有被消除的问题 ([#1120](https://github.com/ClassIsland/ClassIsland/issues/1120))
+- 【提醒】修复链式提醒由于没有注册提醒完毕后处理操作，导致提醒在正在播放队列中没有被消除的问题 ([#1120](https://github.com/ClassPixelPro/ClassPixelPro/issues/1120))
 - 【插件】修正插件目录位置 
 - 【档案】移除 ProfileService 的硬编码路径
-- 【应用】修复部分窗口任务栏图标为 256 色图标的问题 ([#1126](https://github.com/ClassIsland/ClassIsland/issues/1126))
+- 【应用】修复部分窗口任务栏图标为 256 色图标的问题 ([#1126](https://github.com/ClassPixelPro/ClassPixelPro/issues/1126))
 - 【主界面】修复背景颜色在首次启动时没有应用的问题
 - 【主界面】修复文字颜色在部分元素上无法应用的问题
 - 【平台调用】修复 Windows 平台无法获取窗口信息的问题

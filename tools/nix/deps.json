@@ -165,42 +165,42 @@
     "hash": "sha256-DoDZNWtYM+0OLIclOEZ+tjcGXymGlXvdvq2ZMPmiAJA="
   },
   {
-    "pname": "ClassIsland.ColorDocument.Avalonia",
+    "pname": "ClassPixelPro.ColorDocument.Avalonia",
     "version": "11.0.3.4",
     "hash": "sha256-uYojWucgeOn6+WYLSHxPEwOSaIEcBfjUrcohgPHLarU="
   },
   {
-    "pname": "ClassIsland.ColorTextBlock.Avalonia",
+    "pname": "ClassPixelPro.ColorTextBlock.Avalonia",
     "version": "11.0.3.4",
     "hash": "sha256-wxyWEVQDAN71LwYgjxZExyksTgzQJEHWblU7Sa3hDQM="
   },
   {
-    "pname": "ClassIsland.Markdown.Avalonia",
+    "pname": "ClassPixelPro.Markdown.Avalonia",
     "version": "11.0.3.4",
     "hash": "sha256-c2A64+YagS9hsm1wZq6tIsNU7GezOCk58SxjXQegNzQ="
   },
   {
-    "pname": "ClassIsland.Markdown.Avalonia.Html",
+    "pname": "ClassPixelPro.Markdown.Avalonia.Html",
     "version": "11.0.3.4",
     "hash": "sha256-OLcBTinkOeDnvBrMb1ObyJ3HKcv8XkzuQN9j5JhYWsI="
   },
   {
-    "pname": "ClassIsland.Markdown.Avalonia.Svg",
+    "pname": "ClassPixelPro.Markdown.Avalonia.Svg",
     "version": "11.0.3.4",
     "hash": "sha256-2hN6Da043T7+0M1nGU+tGTt1BNRuemH13Jgxmp4Jh34="
   },
   {
-    "pname": "ClassIsland.Markdown.Avalonia.SyntaxHigh",
+    "pname": "ClassPixelPro.Markdown.Avalonia.SyntaxHigh",
     "version": "11.0.3.4",
     "hash": "sha256-Nc8671WrGGVI/toLMy21D1OhYKVOJlzlmvlKORNmGAw="
   },
   {
-    "pname": "ClassIsland.Markdown.Avalonia.Tight",
+    "pname": "ClassPixelPro.Markdown.Avalonia.Tight",
     "version": "11.0.3.4",
     "hash": "sha256-3JDOLHub4sbpmJwENwehWoUcO7kNupOoq78WJATz1T4="
   },
   {
-    "pname": "ClassIsland.SimpleGitInfoGenerator",
+    "pname": "ClassPixelPro.SimpleGitInfoGenerator",
     "version": "1.0.0.1",
     "hash": "sha256-WNUE1am9ch9PyRKlkNnf7IpIZsG5Pl2OPNaHjnGqi6s="
   },

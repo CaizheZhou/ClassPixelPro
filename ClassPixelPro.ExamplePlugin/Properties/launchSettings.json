@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ClassPixelPro 插件": {
+      "commandName": "Executable",
+      "executablePath": "$(ClassPixelPro_DebugBinaryFile)",
+      "commandLineArgs": "-epp $(TargetDir)",
+      "workingDirectory": "$(ClassPixelPro_DebugBinaryDirectory)"
+    }
+  }
+}

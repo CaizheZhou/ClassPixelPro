@@ -41,15 +41,15 @@ partial class Build : NukeBuild
     
     string PublishArtifactName;
 
-    readonly AbsolutePath DesktopAppEntryProject = RootDirectory / "ClassIsland.Desktop" / "ClassIsland.Desktop.csproj";
-    readonly AbsolutePath LauncherEntryProject = RootDirectory / "ClassIsland.Launcher" / "ClassIsland.Launcher.csproj";
-    readonly AbsolutePath PluginDevAppPath = RootDirectory / "out" / "ClassIsland_Dev";
-    readonly AbsolutePath PluginDevAppPublishPath = RootDirectory / "out" / "ClassIsland_Dev" / "bin";
-    readonly AbsolutePath NupkgEntryProject = RootDirectory / "ClassIsland.Filter.Linux.slnf";
+    readonly AbsolutePath DesktopAppEntryProject = RootDirectory / "ClassPixelPro.Desktop" / "ClassPixelPro.Desktop.csproj";
+    readonly AbsolutePath LauncherEntryProject = RootDirectory / "ClassPixelPro.Launcher" / "ClassPixelPro.Launcher.csproj";
+    readonly AbsolutePath PluginDevAppPath = RootDirectory / "out" / "ClassPixelPro_Dev";
+    readonly AbsolutePath PluginDevAppPublishPath = RootDirectory / "out" / "ClassPixelPro_Dev" / "bin";
+    readonly AbsolutePath NupkgEntryProject = RootDirectory / "ClassPixelPro.Filter.Linux.slnf";
     readonly AbsolutePath AppOutputPath = RootDirectory / "out";
-    readonly AbsolutePath AppPublishPath = RootDirectory / "out" / "ClassIsland";
+    readonly AbsolutePath AppPublishPath = RootDirectory / "out" / "ClassPixelPro";
     readonly AbsolutePath LauncherPublishPath = RootDirectory / "out" / "Launcher";
-    readonly AbsolutePath AppSecretsPath = RootDirectory / "ClassIsland" / "secrets.g.cs";
+    readonly AbsolutePath AppSecretsPath = RootDirectory / "ClassPixelPro" / "secrets.g.cs";
 
     [Parameter("Configuration to build - Default is 'Debug' (local) or 'Release' (server)")]
     readonly Configuration Configuration = Configuration.Release ;

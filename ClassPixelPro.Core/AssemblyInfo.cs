@@ -1,0 +1,26 @@
+using System.Runtime.CompilerServices;
+using Avalonia.Metadata;
+
+[assembly: InternalsVisibleTo("ClassPixelPro")]
+[assembly: InternalsVisibleTo("ClassPixelPro.Desktop")]
+[assembly: InternalsVisibleTo("ClassPixelPro.Platforms.Windows")]
+
+[assembly: XmlnsPrefix("http://classpixelpro.tech/schemas/xaml/core", "ci")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Converters")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls.CommonDialog")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls.LessonsControls")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls.IconControl")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls.NavHyperlink")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls.Ruleset")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls.Tutorial")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Commands")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Abstractions.Controls")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Abstractions.Behaviors")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Controls.StickerControl")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Abstractions.Views")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Behaviors")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.Assists")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.IconSources")]
+[assembly: XmlnsDefinition("http://classpixelpro.tech/schemas/xaml/core", "ClassPixelPro.Core.MarkupExtensions")]

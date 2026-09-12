@@ -1,9 +1,9 @@
 > [!caution]
 > # 警告！请不要使用此版本
 > 
-> 当前版本为 2.0 的早期技术预览版本，不要在生产环境使用此版本。请使用[稳定版 1.7.0.1](https://github.com/ClassIsland/ClassIsland/releases/tag/1.7.0.1)。本版本仍有大量功能未移植，仅作跨平台可行性验证，欢迎在 Issue 中汇报您使用时遇到的问题。
+> 当前版本为 2.0 的早期技术预览版本，不要在生产环境使用此版本。请使用[稳定版 1.7.0.1](https://github.com/ClassPixelPro/ClassPixelPro/releases/tag/1.7.0.1)。本版本仍有大量功能未移植，仅作跨平台可行性验证，欢迎在 Issue 中汇报您使用时遇到的问题。
 
-![Banner](https://res.classisland.tech/banners/2.0/1.7.101.0.webp)
+![Banner](https://res.classpixelpro.tech/banners/2.0/1.7.101.0.webp)
 
 2.0 - \#\#\#\#\#\#\#\# (■■■■■)
 

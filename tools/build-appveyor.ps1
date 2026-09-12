@@ -1,4 +1,4 @@
-﻿$PUBLISH_TARGET = ".\ClassIsland"
+﻿$PUBLISH_TARGET = ".\ClassPixelPro"
 
 $ErrorActionPreference = "Stop"
 

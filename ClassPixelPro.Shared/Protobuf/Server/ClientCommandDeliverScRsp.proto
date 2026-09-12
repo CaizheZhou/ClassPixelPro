@@ -1,0 +1,12 @@
+syntax = "proto3";
+package ClassPixelPro.Shared.Protobuf.Server;
+option csharp_namespace = "ClassPixelPro.Shared.Protobuf.Server";
+
+import "Protobuf/Enum/CommandTypes.proto";
+import "Protobuf/Enum/Retcode.proto";
+
+message ClientCommandDeliverScRsp {
+    Enum.Retcode RetCode = 1;
+    Enum.CommandTypes Type = 2;
+    bytes Payload = 3;
+}

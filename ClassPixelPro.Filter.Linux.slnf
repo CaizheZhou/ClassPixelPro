@@ -1,0 +1,21 @@
+﻿{
+  "solution": {
+    "path": "ClassPixelPro.sln",
+    "projects": [
+      "build\\_build.csproj",
+      "ClassPixelPro.Core\\ClassPixelPro.Core.csproj",
+      "ClassPixelPro.Desktop\\ClassPixelPro.Desktop.csproj",
+      "ClassPixelPro.DocsGenerator\\ClassPixelPro.DocsGenerator.csproj",
+      "ClassPixelPro.ExamplePlugin\\ClassPixelPro.ExamplePlugin.csproj",
+      "ClassPixelPro.Launcher\\ClassPixelPro.Launcher.csproj",
+      "ClassPixelPro.Platforms.Abstractions\\ClassPixelPro.Platforms.Abstractions.csproj",
+      "ClassPixelPro.PluginSdk\\ClassPixelPro.PluginSdk.csproj",
+      "ClassPixelPro.Shared.IPC\\ClassPixelPro.Shared.IPC.csproj",
+      "ClassPixelPro.Shared\\ClassPixelPro.Shared.csproj",
+      "ClassPixelPro\\ClassPixelPro.csproj",
+      "platforms\\ClassPixelPro.Platforms.Linux\\ClassPixelPro.Platforms.Linux.csproj",
+      "vendors\\EdgeTtsSharp\\Edge_tts_sharp\\Edge_tts_sharp.csproj",
+      "vendors\\PhainonDistributionCenter.Shared\\PhainonDistributionCenter.Shared.csproj"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+syntax = "proto3";
+package ClassPixelPro.Shared.Protobuf.Client;
+option csharp_namespace = "ClassPixelPro.Shared.Protobuf.Client";
+
+message ClientRegisterCsReq {
+    string ClientUid = 1;
+    string ClientId = 2;
+    string ClientMac = 3;
+}

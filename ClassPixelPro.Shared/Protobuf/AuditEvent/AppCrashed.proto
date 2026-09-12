@@ -1,0 +1,7 @@
+syntax = "proto3";
+package ClassPixelPro.Shared.Protobuf.AuditEvent;
+option csharp_namespace = "ClassPixelPro.Shared.Protobuf.AuditEvent";
+
+message AppCrashed {
+  string Stacktrace = 1;
+}

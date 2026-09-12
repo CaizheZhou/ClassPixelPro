@@ -1,0 +1,8 @@
+id: classpixelpro.example
+name: 示例插件
+description: 插件描述
+entranceAssembly: "ClassPixelPro.ExamplePlugin.dll"
+url: https://github.com/ClassPixelPro/ClassPixelPro
+apiVersion: 2.0.0.0
+version: 2.0.0.0
+author: ClassPixelPro

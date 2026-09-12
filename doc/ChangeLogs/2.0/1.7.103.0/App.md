@@ -3,9 +3,9 @@
 > [!warning]
 > # 警告！请不要使用此版本
 >
-> 当前版本为 2.0 的测试版，尽管部分功能已经可用，但还是不建议在生产环境使用此版本。请使用[稳定版 1.7.0.1](https://github.com/ClassIsland/ClassIsland/releases/tag/1.7.0.1)。本版本仍有大量功能未移植，仅作跨平台可行性验证，欢迎在 Issue 中汇报您使用时遇到的问题。
+> 当前版本为 2.0 的测试版，尽管部分功能已经可用，但还是不建议在生产环境使用此版本。请使用[稳定版 1.7.0.1](https://github.com/ClassPixelPro/ClassPixelPro/releases/tag/1.7.0.1)。本版本仍有大量功能未移植，仅作跨平台可行性验证，欢迎在 Issue 中汇报您使用时遇到的问题。
 
-<img src="https://res.classisland.tech/stickers/2.png" height="75" width="75" alt="白厄_再见" title="白厄_再见"/>
+<img src="https://res.classpixelpro.tech/stickers/2.png" height="75" width="75" alt="白厄_再见" title="白厄_再见"/>
 
 2.0 - Khaslana
 

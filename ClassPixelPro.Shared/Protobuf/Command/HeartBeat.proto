@@ -1,0 +1,7 @@
+syntax = "proto3";
+package ClassPixelPro.Shared.Protobuf.Command;
+option csharp_namespace = "ClassPixelPro.Shared.Protobuf.Command";
+
+message HeartBeat {
+    bool isOnline = 1;
+}
