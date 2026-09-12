@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
+using ClassPixelPro.Core.Abstractions.Services;
 using ClassPixelPro.Core.Abstractions.Services.Metadata;
 using ClassPixelPro.Core.Commands;
 using ClassPixelPro.Core.Enums.Metadata.Announcement;
@@ -56,6 +57,16 @@ public partial class AnnouncementControl : UserControl
 
     private void ButtonDetails_OnClick(object? sender, RoutedEventArgs e)
     {
-        UriNavigationCommands.UriNavigationCommand.Execute(Announcement.DetailsUri);
+        // 防护：无详情或详情链接为空时忽略点击，避免空 URI 崩溃
+        if (Announcement is not { HasDetails: true })
+            return;
+        if (string.IsNullOrWhiteSpace(Announcement.DetailsUri))
+        {
+            IAppHost.GetService<IUriNavigationService>().NavigateWrapped(new Uri("https://class.imzcz.cn/#/announcements"));
+            return;
+        }
+        if (!Uri.TryCreate(Announcement.DetailsUri, UriKind.Absolute, out var uri))
+            return;
+        UriNavigationCommands.UriNavigationCommand.Execute(uri);
     }
 }
