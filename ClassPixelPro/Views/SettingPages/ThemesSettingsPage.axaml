@@ -194,6 +194,7 @@
                                             Content="{ci:FluentIcon &#xe905;}"
                                             Margin="2 -4 0 -4"
                                             ToolTip.Tip="网站…"
+                                            IsVisible="{Binding Value.Manifest.Url, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                             CommandParameter="{Binding Value.Manifest.Url}"
                                             Command="{x:Static ci:UriNavigationCommands.UriNavigationCommand}" />
                                 </StackPanel>

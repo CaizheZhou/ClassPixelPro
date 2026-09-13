@@ -371,3 +371,6 @@ cipx/
 
 **/.idea/avalonia.xml
 **/.idea/copilot.*
+
+# 构建过程中生成的机密常量（由 build 目标生成并在构建结束时清理）
+secrets.g.cs

@@ -16,16 +16,10 @@ public class DevelopmentBuildAdorner : TemplatedControl
     /// </summary>
     public bool IsDevelopmentBuild { get; }
 
-    /// <summary>
-    /// 是否显示开源水印
-    /// </summary>
-    public bool ShowOssWatermark { get; }
-
     /// <inheritdoc />
-    public DevelopmentBuildAdorner(bool isDevelopmentBuild, bool showOssWatermark)
+    public DevelopmentBuildAdorner(bool isDevelopmentBuild)
     {
         IsDevelopmentBuild = isDevelopmentBuild;
-        ShowOssWatermark = showOssWatermark;
         ClipToBounds = false;
     }
 }

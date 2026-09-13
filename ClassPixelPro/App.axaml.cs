@@ -386,6 +386,8 @@ public partial class App : AppBase, IAppHost
             });
         }
 
+        IAppHost.TryGetService<UsageStatisticsService>()?.ReportCrash(e);
+
         var plugins = DiagnosticService.GetPluginsByStacktrace(e);
         var disabled = DiagnosticService.DisableCorruptPlugins(plugins);
         var managementService = IAppHost.TryGetService<IManagementService>();
@@ -499,7 +501,6 @@ public partial class App : AppBase, IAppHost
         var spanPreInit = transaction.StartChild("startup-init");
         AppBase.CurrentLifetime = ClassPixelPro.Core.Enums.ApplicationLifetime.Initializing;
         Dispatcher.UIThread.UnhandledException += App_OnDispatcherUnhandledException;
-        MyWindow.ShowOssWatermark = ApplicationCommand.ShowOssWatermark;
         //DependencyPropertyHelper.ForceOverwriteDependencyPropertyDefaultValue(FrameworkElement.FocusVisualStyleProperty,
         //    Resources[SystemParameters.FocusVisualStyleKey]);
 
@@ -848,6 +849,9 @@ public partial class App : AppBase, IAppHost
                     s.SetTag("deviceDesktop.vendor", vendor);
                 });
             }
+
+            // 匿名使用情况分析：上报到自有服务端（开关关闭时不做任何上报）。
+            IAppHost.TryGetService<UsageStatisticsService>()?.ReportStart();
             AppStarted?.Invoke(this, EventArgs.Empty);
             GetService<IIpcService>().IpcProvider.StartServer();
             GetService<IIpcService>().JsonRoutedProvider.StartServer();

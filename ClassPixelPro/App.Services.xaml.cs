@@ -95,6 +95,7 @@ public partial class App
         services.AddSingleton<SignalTriggerHandlerService>();
         services.AddSingleton<TrayMenuTriggerHandlerService>();
         services.AddSingleton<IAnnouncementService, AnnouncementService>();
+        services.AddSingleton<UsageStatisticsService>();
         services.AddSingleton<ILocationService>(PlatformServices.LocationService);
         services.AddSingleton<IXamlThemeService, XamlThemeService>();
         services.AddSingleton<IAudioService, AudioService>();

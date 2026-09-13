@@ -18,14 +18,6 @@
                 <Run Text="开发中画面，不代表最终品质。"/><LineBreak/>
                 <Run Text="{x:Static core:AppBase.AppVersionLong}"/>
             </TextBlock>
-            <TextBlock VerticalAlignment="Bottom"
-                       HorizontalAlignment="Right"
-                       TextAlignment="Right"
-                       FontSize="12"
-                       FontFamily="JetBrains Mono, Consolas,  黑体"
-                       IsVisible="{Binding ShowOssWatermark, RelativeSource={RelativeSource TemplatedParent}}">
-                <Run Text="https://class.imzcz.cn"/>
-            </TextBlock>
         </Grid>
     </ControlTemplate>
     

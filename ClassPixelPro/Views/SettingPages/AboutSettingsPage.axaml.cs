@@ -1,11 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
-using System.Text.Json;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Input;
 using AsyncImageLoader;
 using Avalonia;
 using Avalonia.Controls;
@@ -23,9 +19,7 @@ using ClassPixelPro.Core.Controls;
 using ClassPixelPro.Core.Enums.SettingsWindow;
 using ClassPixelPro.Core.Helpers.UI;
 using ClassPixelPro.Core.Models.UI;
-using ClassPixelPro.Helpers;
 using ClassPixelPro.Models;
-using ClassPixelPro.Models.AllContributors;
 using ClassPixelPro.Services;
 using ClassPixelPro.Shared;
 using ClassPixelPro.ViewModels.SettingsPages;
@@ -50,11 +44,6 @@ public partial class AboutSettingsPage : SettingsPageBase
     {
         DataContext = this;
         InitializeComponent();
-        var r = new StreamReader(AssetLoader.Open(new Uri("avares://ClassPixelPro/Assets/LICENSE.txt")));
-        ViewModel.License = r.ReadToEnd();
-
-        using var dependenciesStream = AssetLoader.Open(new Uri("avares://ClassPixelPro/Assets/dependencies.g.json"));
-        ViewModel.ThirdPartyLibs = JsonSerializer.Deserialize<ObservableCollection<NuGetLicenseInfo>>(dependenciesStream) ?? [];
     }
 
     private void UriNavigationCommands_OnClick(object sender, RoutedEventArgs e)
@@ -66,15 +55,6 @@ public partial class AboutSettingsPage : SettingsPageBase
             _ => "classpixelpro://app/test/"
         };
         IAppHost.TryGetService<IUriNavigationService>()?.NavigateWrapped(new Uri(url));
-    }
-
-    private void Hyperlink2_OnClick(object sender, RoutedEventArgs e)
-    {
-        Process.Start(new ProcessStartInfo()
-        {
-            FileName = "https://github.com/DuguSand/class_form",
-            UseShellExecute = true
-        });
     }
 
     private async void ButtonDiagnosticInfo_OnClick(object sender, RoutedEventArgs e)
@@ -115,45 +95,6 @@ public partial class AboutSettingsPage : SettingsPageBase
         }
     }
 
-    private async void ButtonContributors_OnClick(object sender, RoutedEventArgs e)
-    {
-        OpenDrawer("ContributorsDrawer");
-        await RefreshContributors();
-    }
-
-    private void ButtonThirdPartyLibs_OnClick(object sender, RoutedEventArgs e)
-    {
-        OpenDrawer("ThirdPartyLibs");
-    }
-
-    private async Task RefreshContributors()
-    {
-        ViewModel.IsRefreshingContributors = true;
-        try
-        {
-            ViewModel.SettingsService.Settings.ContributorsCache =
-                await WebRequestHelper.Default.GetJson<AllContributorsRc>(new Uri(
-                    "https://ghfast.top/https://raw.githubusercontent.com/ClassPixelPro/ClassPixelPro/master/.all-contributorsrc"));
-        }
-        catch (Exception ex)
-        {
-            App.GetService<ILogger<AboutSettingsPage>>().LogError(ex, "无法获取贡献者名单。");
-            this.ShowToast(new ToastMessage()
-            {
-                Severity = InfoBarSeverity.Error,
-                Title = "无法获取贡献者名单",
-                Message = ex.Message,
-                AutoClose = false
-            });
-        }
-        ViewModel.IsRefreshingContributors = false;
-    }
-
-    private async void ButtonRefreshContributors_OnClick(object sender, RoutedEventArgs e)
-    {
-        await RefreshContributors();
-    }
-
     private void ButtonPrivacy_OnClick(object sender, RoutedEventArgs e)
     {
         new DocumentReaderWindow()
@@ -192,22 +133,6 @@ public partial class AboutSettingsPage : SettingsPageBase
             ViewModel.SayingsCollection.RemoveAt(0);
         }
         SentrySdk.Metrics.EmitCounter("views.settings.about.sayings.click", 1);
-    }
-
-    private async void SettingsExpanderItemShowOssLicense_OnClick(object? sender, RoutedEventArgs e)
-    {
-        var license = await new StreamReader(AssetLoader.Open(new Uri("avares://ClassPixelPro/Assets/LICENSE.txt")))
-            .ReadToEndAsync();
-        await new ContentDialog()
-        {
-            Title = "开放源代码许可",
-            Content = new TextBlock()
-            {
-                Text = license
-            },
-            PrimaryButtonText = "关闭",
-            DefaultButton = ContentDialogButton.Primary
-        }.ShowAsync();
     }
 
     private async void DebugBorder_OnPointerPressed(object? sender, PointerPressedEventArgs e)

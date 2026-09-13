@@ -35,11 +35,6 @@ public partial class MyWindow : AppWindow
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_PseudoClasses")]
     private static extern IPseudoClasses GetPseudoClasses(StyledElement element);
 
-    /// <summary>
-    /// 是否显示开源警告水印
-    /// </summary>
-    public static bool ShowOssWatermark { get; internal set; } = false;
-
     private bool _enableMicaWindow;
     
     /// <summary>
@@ -169,8 +164,16 @@ public partial class MyWindow : AppWindow
         {
             var commands = CommandManager.GetCommandBindings(window);
             commands.Add(new CommandBinding(UriNavigationCommands.UriNavigationCommand,
-                (_, args) => IAppHost.TryGetService<IUriNavigationService>()
-                    ?.NavigateWrapped(new Uri(args.Parameter?.ToString() ?? "classpixelpro:")),
+                (_, args) =>
+                {
+                    // 参数可能来自外部数据源（如主题清单的 Url 字段），为空或非法时直接忽略，避免抛出 UriFormatException。
+                    if (!Uri.TryCreate(args.Parameter?.ToString(), UriKind.Absolute, out var uri))
+                    {
+                        return;
+                    }
+
+                    IAppHost.TryGetService<IUriNavigationService>()?.NavigateWrapped(uri);
+                },
                 (_, args) => args.CanExecute = true));
             CommandManager.SetCommandBindings(window, commands);
         }
@@ -187,9 +190,9 @@ public partial class MyWindow : AppWindow
             layer?.Children.Add(appToastAdorner);
             AdornerLayer.SetAdornedElement(appToastAdorner, window);
 
-            if ((AppBase.Current.IsDevelopmentBuild || ShowOssWatermark))
+            if (AppBase.Current.IsDevelopmentBuild)
             {
-                var adorner = new DevelopmentBuildAdorner(AppBase.Current.IsDevelopmentBuild, ShowOssWatermark);
+                var adorner = new DevelopmentBuildAdorner(AppBase.Current.IsDevelopmentBuild);
                 layer?.Children.Add(adorner);
                 AdornerLayer.SetAdornedElement(adorner, window);
             }

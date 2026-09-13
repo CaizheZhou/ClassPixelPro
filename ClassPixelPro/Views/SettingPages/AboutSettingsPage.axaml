@@ -18,47 +18,6 @@
       d:DesignHeight="450" d:DesignWidth="800"
       d:DataContext="{d:DesignInstance local:AboutSettingsPage}">
     <controls:SettingsPageBase.Resources>
-        <Grid Margin="16" x:Key="ThirdPartyLibs" Width="300" RowDefinitions="Auto,*">
-            <TextBlock Grid.Row="0" Text="第三方库" Theme="{StaticResource SubtitleTextBlockStyle}" />
-            <ListBox Grid.Row="1" Margin="0 6 0 0"
-                     ItemsSource="{Binding ViewModel.ThirdPartyLibs}">
-                <ListBox.ItemTemplate>
-                    <DataTemplate DataType="{x:Type models:NuGetLicenseInfo}">
-                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto"
-                              Margin="0 4">
-                            <controls1:FluentIcon Grid.Row="0" Grid.Column="0"
-                                                  Glyph="&#xE07D;" VerticalAlignment="Center"
-                                                  Margin="0 0 6 0" />
-                             <TextBlock Grid.Row="0" Grid.Column="1"
-                                        Text="{Binding PackageId}"
-                                        VerticalAlignment="Center" FontSize="14"
-                                        FontWeight="Bold" TextWrapping="Wrap" />
-                            <WrapPanel Grid.Row="1" Grid.Column="1"
-                                       VerticalAlignment="Center" 
-                                       IsVisible="{Binding IsSelected, RelativeSource={RelativeSource FindAncestor, AncestorType=ListBoxItem}}">
-                                 <commands:NavHyperlink NavTarget="{Binding PackageProjectUrl}"
-                                                        ToolTip.Tip="{Binding PackageProjectUrl}">
-                                     网站…
-                                 </commands:NavHyperlink>
-                                 <commands:NavHyperlink NavTarget="{Binding LicenseUrl}"
-                                                        ToolTip.Tip="{Binding LicenseUrl}">
-                                     <TextBlock Text="{Binding License, StringFormat='许可证：{0}'}" />
-                                 </commands:NavHyperlink>
-                             </WrapPanel>
-                             <!--<TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Description}"  Margin="0 3 0 0" TextWrapping="Wrap"/>-->
-                         </Grid>
-                     </DataTemplate>
-                 </ListBox.ItemTemplate>
-            </ListBox>
-        </Grid>
-
-        <Grid x:Key="OpenSourceLicense" Margin="16" MaxHeight="{Binding Height}"
-              RowDefinitions="Auto,*,Auto">
-            <TextBox Grid.Row="1" Margin="0 12 0 0"
-                     Padding="8" Text="{Binding ViewModel.License, Mode=OneWay}" IsReadOnly="True"
-                     FontFamily="Consolas" />
-        </Grid>
-
         <Grid x:Key="DiagnosticInfoDialog" Margin="16" Height="400" Width="550" MaxHeight="{Binding Height}"
               RowDefinitions="Auto,*,Auto">
             <TextBox Grid.Row="1" Margin="0 12 0 0"
@@ -149,7 +108,7 @@
                 <controls3:SettingsExpander.IconSource>
                     <controls3:ImageIconSource Source="/Assets/AppLogo.png"/>
                 </controls3:SettingsExpander.IconSource>
-                <controls3:SettingsExpanderItem Description="本项目基于 GNU General Public License v3.0 获得许可。">
+                <controls3:SettingsExpanderItem Description="感谢您使用 ClassPixelPro。">
                     <controls3:SettingsExpanderItem.Footer>
                         <WrapPanel Classes="animated-resize">
                             <WrapPanel.Styles>
@@ -158,10 +117,6 @@
                                     <Setter Property="Margin" Value="2"/>
                                 </Style>
                             </WrapPanel.Styles>
-                            <HyperlinkButton Click="SettingsExpanderItemShowOssLicense_OnClick"
-                                             CommandParameter="https://class.imzcz.cn">
-                                <TextBlock Text="开放源代码许可"/>
-                            </HyperlinkButton>
                             <HyperlinkButton Click="ButtonPrivacy_OnClick"
                                              CommandParameter="https://class.imzcz.cn/docs">
                                 <TextBlock Text="隐私政策"/>
@@ -197,24 +152,6 @@
                     Click="ButtonDiagnosticInfo_OnClick"
                     Content="查看诊断信息"
                     IsClickEnabled="True"/>
-            </controls3:SettingsExpander>
-            
-            <controls3:SettingsExpander Header="鸣谢" IconSource="{commands:FluentIconSource &#xE971;}"
-                                        IsExpanded="True">
-                <controls3:SettingsExpanderItem 
-                    Content="第三方库"
-                    Click="ButtonThirdPartyLibs_OnClick"
-                    IsClickEnabled="True"/>
-                <controls3:SettingsExpanderItem>
-                    <TextBlock LineHeight="30" Margin="0 0 0 0" FontSize="14" TextWrapping="Wrap">
-                        界面主题和部分控件使用了 FluentAvalonia 框架。<LineBreak/>
-                        应用字体使用了华为出品的 HarmonyOS Sans。<LineBreak/>
-                        天气数据来源于小米天气。<LineBreak/>
-                        部分图像资源（/Assets/HoYoStickers/*）来自米游社和 Bilibili 装扮表情包，版权归 miHoYo 所有。<LineBreak/>
-                        感谢其他使用的第三方库，详见第三方库列表。
-                    </TextBlock>
-                </controls3:SettingsExpanderItem>
-
             </controls3:SettingsExpander>
             
             <controls3:SettingsExpander Header="回声洞" IconSource="{commands:FluentIconSource &#xE55F;}">

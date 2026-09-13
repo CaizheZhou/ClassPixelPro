@@ -1,14 +1,14 @@
 <Project>
     <PropertyGroup>
-        <Authors>HelloWRC</Authors>
-        <Company>HelloWRC.Dev</Company>
+        <Authors>ClassPixelPro</Authors>
+        <Company>ClassPixelPro</Company>
         <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-        <PackageLicenseExpression>LGPL-3.0-only</PackageLicenseExpression>
-        <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
-		<PackageProjectUrl>https://classpixelpro.tech</PackageProjectUrl>
-		<RepositoryUrl>https://github.com/ClassPixelPro/ClassPixelPro</RepositoryUrl>
+        <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+        <PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
+		<PackageProjectUrl>https://class.imzcz.cn</PackageProjectUrl>
+		<RepositoryUrl>https://class.imzcz.cn</RepositoryUrl>
 	    <PackageReadmeFile>README.md</PackageReadmeFile>
-		<Copyright>Copyright (c) 2024 HelloWRC</Copyright>
+		<Copyright>Copyright (c) 2024 ClassPixelPro</Copyright>
 	    <RepositoryType>git</RepositoryType>
 	</PropertyGroup>
     <ItemGroup>

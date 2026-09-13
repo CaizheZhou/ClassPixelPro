@@ -19,7 +19,7 @@
                 <TextBlock Text="匿名使用情况分析"
                            Theme="{StaticResource SubtitleTextBlockStyle}" />
                 <TextBlock Margin="0 6 0 0" TextWrapping="Wrap"
-                           Text="本应用将通过 SentrySDK 来收集本应用中的使用情况与错误信息，以改进本应用。您的信息会匿名上传，不会包含您的个人信息。您可以自行启用或禁用此功能。" />
+                           Text="本应用会将应用版本、运行系统、启动与活跃情况以及崩溃信息匿名上报到 ClassPixelPro 的自建统计服务，以改进本应用。上报内容不包含您的个人信息，您也可以随时在此页面关闭。" />
                 <TextBlock Margin="0 6 0 0" TextWrapping="Wrap">
                     <Run Text="更多信息请见">
                     </Run>
@@ -32,7 +32,7 @@
             
             <controls2:SettingsExpander IconSource="{controls1:FluentIconSource &#xE4E8;}"
                                         Header="启用匿名使用情况分析"
-                                        Description="启用后，应用将收集应用的使用情况与错误信息并上传，以改进此应用。上传的信息不包含您的个人信息。为了确保环境块完全刷新，可能需要重启计算机才能使本设置完全生效。">
+                                        Description="启用后，应用将收集使用情况与错误信息并上报，以改进此应用。上报的信息不包含您的个人信息，仅使用随机生成的匿名标识。关闭后应用将不再上报任何数据。">
                 <controls2:SettingsExpander.Footer>
                     <ToggleSwitch IsChecked="{Binding SettingsService.Settings.IsSentryEnabled, Mode=TwoWay}"/>
                 </controls2:SettingsExpander.Footer>
