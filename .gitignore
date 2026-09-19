@@ -374,3 +374,9 @@ cipx/
 
 # 构建过程中生成的机密常量（由 build 目标生成并在构建结束时清理）
 secrets.g.cs
+
+# 打包脚本（pack.ps1）产出的便携目录与分发包，不应入库
+ClassPixelPro-dist/
+ClassPixelPro-dist-*/
+ClassPixelPro_*.zip
+pack_log*.txt

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- 导入 build/ 目录下的原有配置 -->
+  <Import Project="build\Directory.Build.props" Condition="Exists('build\Directory.Build.props')" />
+
+  <!-- 确保临时目录存在，避免 CSC 编译器 "Failed to open argument file" 错误 -->
+  <Target Name="EnsureTempDirs" BeforeTargets="BeforeBuild">
+    <MakeDir Directories="$(TMP)\MSBuildTemp;$(TMP)\NuGetScratch\lock" />
+  </Target>
+
+</Project>
