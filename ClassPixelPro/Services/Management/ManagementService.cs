@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading.Tasks;
 using ClassPixelPro.Core;
 using ClassPixelPro.Core.Abstractions.Services;
@@ -13,11 +14,14 @@ using ClassPixelPro.Shared.Enums;
 using ClassPixelPro.Shared.Models.Management;
 using ClassPixelPro.Shared.Protobuf.Enum;
 using ClassPixelPro.Helpers;
+using ClassPixelPro.Models;
 using ClassPixelPro.Models.Authorize;
+using ClassPixelPro.Services;
 using ClassPixelPro.Shared;
 using ClassPixelPro.Shared.Protobuf.AuditEvent;
 using ClassPixelPro.Shared.Protobuf.Client;
 using ClassPixelPro.Shared.Protobuf.Service;
+using CommunityToolkit.Mvvm.ComponentModel;
 using FluentAvalonia.UI.Controls;
 using Microsoft.Extensions.Logging;
 
@@ -25,7 +29,7 @@ using static ClassPixelPro.Shared.Helpers.ConfigureFileHelper;
 
 namespace ClassPixelPro.Services.Management;
 
-public class ManagementService : IManagementService
+public class ManagementService : ObservableRecipient, IManagementService
 {
     static ManagementService()
     {
@@ -53,6 +57,12 @@ public class ManagementService : IManagementService
     public static readonly string ManagementPolicyPath = Path.Combine(ManagementConfigureFolderPath, "Policy.json");
     public static readonly string ManagementCredentialsPath = Path.Combine(ManagementConfigureFolderPath, "Credentials.json");
     public static readonly string ManagementComponentsPath = Path.Combine(ManagementConfigureFolderPath, "Components.json");
+    public static readonly string ManagementAppSettingsPath =
+        Path.Combine(ManagementConfigureFolderPath, "AppSettings.json");
+    public static readonly string ManagementPluginsPath =
+        Path.Combine(ManagementConfigureFolderPath, "Plugins.json");
+    public static readonly string ManagementThemePath =
+        Path.Combine(ManagementConfigureFolderPath, "Theme.json");
 
     public static readonly string LocalManagementPolicyPath =
         Path.Combine(LocalManagementConfigureFolderPath, "Policy.json");
@@ -67,8 +77,19 @@ public class ManagementService : IManagementService
 
     public ManagementSettings Settings { get; }
 
-    public ManagementPolicy Policy { get; set; } = new();
-    public ManagementCredentialConfig CredentialConfig { get; set; } = new();
+    private ManagementPolicy _policy = new();
+    public ManagementPolicy Policy
+    {
+        get => _policy;
+        set => SetProperty(ref _policy, value);
+    }
+
+    private ManagementCredentialConfig _credentialConfig = new();
+    public ManagementCredentialConfig CredentialConfig
+    {
+        get => _credentialConfig;
+        set => SetProperty(ref _credentialConfig, value);
+    }
 
     public ManagementClientPersistConfig Persist { get;}
 
@@ -152,6 +173,24 @@ public class ManagementService : IManagementService
 
         Logger.LogInformation("正在初始化集控");
 
+        // 启动定时刷新（每 5 分钟）
+        _ = Task.Run(async () =>
+        {
+            while (IsManagementEnabled)
+            {
+                await Task.Delay(TimeSpan.FromMinutes(5));
+                if (!IsManagementEnabled) break;
+                try
+                {
+                    await ReloadManagementAsync();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "定时刷新集控配置失败");
+                }
+            }
+        });
+
         return await ReloadManagementAsync();
     }
 
@@ -187,12 +226,49 @@ public class ManagementService : IManagementService
             if (Manifest.PolicySource.IsNewerAndNotNull(Versions.PolicyVersion))
             {
                 Policy = await Connection.SaveJsonAsync<ManagementPolicy>(Manifest.PolicySource.Value!, ManagementPolicyPath);
+                Versions.PolicyVersion = Manifest.PolicySource.Version;
             }
             // 拉取凭据
             if (Manifest.CredentialSource.IsNewerAndNotNull(Versions.CredentialVersion))
             {
                 CredentialConfig = await Connection.SaveJsonAsync<ManagementCredentialConfig>(Manifest.CredentialSource.Value!, ManagementCredentialsPath);
+                Versions.CredentialVersion = Manifest.CredentialSource.Version;
             }
+            // 拉取应用设置
+            if (Manifest.AppSettingsSource.IsNewerAndNotNull(Versions.AppSettingsVersion))
+            {
+                Logger.LogInformation("拉取集控应用设置");
+                await Connection.SaveJsonAsync<Settings>(Manifest.AppSettingsSource.Value!, ManagementAppSettingsPath);
+                Versions.AppSettingsVersion = Manifest.AppSettingsSource.Version;
+                // 应用设置到 SettingsService
+                try
+                {
+                    var settingsService = IAppHost.GetService<SettingsService>();
+                    var appSettings = LoadConfig<Settings>(ManagementAppSettingsPath);
+                    settingsService.Settings = appSettings;
+                    Logger.LogTrace("应用集控设置成功");
+                }
+                catch (Exception exAppSettings)
+                {
+                    Logger.LogError(exAppSettings, "应用集控设置失败");
+                }
+            }
+            // 拉取插件配置
+            if (Manifest.PluginsSource.IsNewerAndNotNull(Versions.PluginsVersion))
+            {
+                Logger.LogInformation("拉取集控插件配置");
+                await Connection.SaveJsonAsync<object>(Manifest.PluginsSource.Value!, ManagementPluginsPath);
+                Versions.PluginsVersion = Manifest.PluginsSource.Version;
+            }
+            // 拉取主题配置
+            if (Manifest.ThemeSource.IsNewerAndNotNull(Versions.ThemeVersion))
+            {
+                Logger.LogInformation("拉取集控主题配置");
+                await Connection.SaveJsonAsync<object>(Manifest.ThemeSource.Value!, ManagementThemePath);
+                Versions.ThemeVersion = Manifest.ThemeSource.Version;
+            }
+            // 保存版本号
+            SaveSettings();
         }
         catch (Exception e)
         {
@@ -304,6 +380,20 @@ public class ManagementService : IManagementService
         var result = await dialog.ShowAsync();
         if (result?.Equals(true) != true)
             return;
+
+        // 通知后端设备离线
+        try
+        {
+            using var httpClient = new HttpClient();
+            var baseUrl = Manifest.PolicySource.Value?.Split("/serverless/")[0] ?? "";
+            var offlineUri = new Uri($"{baseUrl}/serverless/offline?cuid={Persist.ClientUniqueId}&id={Settings.ClassIdentity ?? ""}");
+            _ = await httpClient.PostAsync(offlineUri, null);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "发送离线通知失败（不阻塞退出流程）");
+        }
+
         Settings.IsManagementEnabled = false;
         SaveConfig(ManagementSettingsPath, Settings);
 

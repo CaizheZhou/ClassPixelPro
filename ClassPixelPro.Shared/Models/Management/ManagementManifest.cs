@@ -43,6 +43,21 @@ public class ManagementManifest
     public ReVersionString CredentialSource { get; set; } = new();
 
     /// <summary>
+    /// 应用设置源
+    /// </summary>
+    public ReVersionString AppSettingsSource { get; set; } = new();
+
+    /// <summary>
+    /// 插件配置源
+    /// </summary>
+    public ReVersionString PluginsSource { get; set; } = new();
+
+    /// <summary>
+    /// 主题配置源
+    /// </summary>
+    public ReVersionString ThemeSource { get; set; } = new();
+
+    /// <summary>
     /// 集控服务器类型
     /// </summary>
     public ManagementServerKind ServerKind { get; set; } = ManagementServerKind.Serverless;

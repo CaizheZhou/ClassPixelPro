@@ -36,7 +36,7 @@ public class UsageStatisticsPersist
 /// </summary>
 public class UsageStatisticsService
 {
-    private const string CollectUrl = "https://class.imcz.cn/api/analytics/collect";
+    private const string CollectUrl = "https://class.imzcz.cn/api/analytics/collect";
     private const int MaxStackLength = 8000;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);

@@ -39,4 +39,19 @@ public class ManagementVersions
     /// 组件版本
     /// </summary>
     public int ComponentsVersion { get; set; } = 0;
+
+    /// <summary>
+    /// 应用设置版本
+    /// </summary>
+    public int AppSettingsVersion { get; set; } = 0;
+
+    /// <summary>
+    /// 插件配置版本
+    /// </summary>
+    public int PluginsVersion { get; set; } = 0;
+
+    /// <summary>
+    /// 主题配置版本
+    /// </summary>
+    public int ThemeVersion { get; set; } = 0;
 }

@@ -2,6 +2,7 @@
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using ClassPixelPro.Core.Converters;
@@ -21,7 +22,9 @@ public class WebRequestHelper(Uri? baseUri = null, bool phainon = false)
     {
         Converters =
         {
-            new ColorHexJsonConverter()
+            new ColorHexJsonConverter(),
+            new TolerantGuidConverter(),
+            new TolerantNullableGuidConverter()
         }
     };
     private HttpClient HttpClient { get; } = new(new SentryHttpMessageHandler())
@@ -43,7 +46,7 @@ public class WebRequestHelper(Uri? baseUri = null, bool phainon = false)
             throw new InvalidOperationException("重试次数超过规定最大重试次数。");
         }
         logger?.LogTrace("Json GET: {}", uri);
-        var retryTime = TimeSpan.FromSeconds(1);
+        var retryTime = TimeSpan.FromSeconds(0.5);
         Exception? innerException = null;
         for (var i = 0; i <= retries; i++)
         {
@@ -99,4 +102,61 @@ public class WebRequestHelper(Uri? baseUri = null, bool phainon = false)
         return j;
     }
     
+}
+
+/// <summary>
+/// 容错 Guid 转换器：遇到空字符串或无效 Guid 时返回 Guid.Empty
+/// </summary>
+public class TolerantGuidConverter : JsonConverter<Guid>
+{
+    public override Guid Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var str = reader.GetString();
+            if (string.IsNullOrWhiteSpace(str))
+                return Guid.Empty;
+            if (Guid.TryParse(str, out var guid))
+                return guid;
+            return Guid.Empty;
+        }
+        if (reader.TokenType == JsonTokenType.Null)
+            return Guid.Empty;
+        return reader.GetGuid();
+    }
+
+    public override void Write(Utf8JsonWriter writer, Guid value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value);
+    }
+}
+
+/// <summary>
+/// 容错可空 Guid 转换器
+/// </summary>
+public class TolerantNullableGuidConverter : JsonConverter<Guid?>
+{
+    public override Guid? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return null;
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var str = reader.GetString();
+            if (string.IsNullOrWhiteSpace(str))
+                return null;
+            if (Guid.TryParse(str, out var guid))
+                return guid;
+            return null;
+        }
+        return reader.GetGuid();
+    }
+
+    public override void Write(Utf8JsonWriter writer, Guid? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+            writer.WriteStringValue(value.Value);
+        else
+            writer.WriteNullValue();
+    }
 }

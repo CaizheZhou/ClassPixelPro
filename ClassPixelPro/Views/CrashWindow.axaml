@@ -41,7 +41,11 @@
         <!-- Content -->
         <TextBlock Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="1" TextWrapping="Wrap" FontSize="14"
                    Margin="0 0 0 6">
-            <Run Text="ClassPixelPro 碰到了严重错误而无法正常运行。您可以保存下方的错误信息并向他人寻求帮助。如果您认为这是由软件本身的错误所致，请点击下方“反馈问题”按钮。"/>
+            <Run Text="ClassPixelPro 碰到了严重错误而无法正常运行。您可以保存下方的错误信息并向他人寻求帮助。"/>
+            <LineBreak/>
+            <Run Text="如有问题，请联系周才哲同学（原2023级21班现12班）。" FontWeight="Bold" Foreground="#D83B01"/>
+            <LineBreak/>
+            <Run Text="您也可以点击下方“反馈问题”按钮在线提交错误报告。"/>
         </TextBlock>
         <TextBox Grid.Column="0" Grid.ColumnSpan="2"
                  x:Name="TextBoxCrashInfo" Grid.Row="2" 
