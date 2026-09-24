@@ -72,7 +72,9 @@
                             HorizontalAlignment="Left"
                                     VerticalAlignment="Bottom"
                             Margin="32 8 8 16"
-                                    Opacity="0.75" ColumnDefinitions="Auto,*">
+                                    Opacity="0.75" ColumnDefinitions="Auto,*"
+                            Cursor="Hand"
+                            PointerPressed="EchoCaveGrid_OnPointerPressed">
                             <Grid.IsVisible>
                                 <MultiBinding Converter="{StaticResource BooleanAndExpressionMultiConverter}">
                                     <Binding Path="SettingsService.Settings.ShowEchoCaveWhenSettingsPageLoading"/>

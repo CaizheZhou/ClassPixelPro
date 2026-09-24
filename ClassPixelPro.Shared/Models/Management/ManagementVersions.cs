@@ -54,4 +54,14 @@ public class ManagementVersions
     /// 主题配置版本
     /// </summary>
     public int ThemeVersion { get; set; } = 0;
+
+    /// <summary>
+    /// 组件方案版本
+    /// </summary>
+    public int ComponentSchemeVersion { get; set; } = 0;
+
+    /// <summary>
+    /// 临时调课课表版本
+    /// </summary>
+    public int TempClassPlanVersion { get; set; } = 0;
 }

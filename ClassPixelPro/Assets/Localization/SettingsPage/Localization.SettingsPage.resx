@@ -175,7 +175,7 @@
   </data>
   <data name="OpenSourceStatement" xml:space="preserve">
     <value>感谢您使用 ClassPixelPro。</value>
-    <comment>开源反诈声明</comment>
+    <comment>公告声明</comment>
   </data>
   <data name="ExperimentalFeature_string" xml:space="preserve">
     <value>实验性功能</value>

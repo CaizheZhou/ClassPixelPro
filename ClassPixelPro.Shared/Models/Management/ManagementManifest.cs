@@ -58,6 +58,16 @@ public class ManagementManifest
     public ReVersionString ThemeSource { get; set; } = new();
 
     /// <summary>
+    /// 组件方案源
+    /// </summary>
+    public ReVersionString? ComponentSchemeSource { get; set; }
+
+    /// <summary>
+    /// 临时调课课表源。由集控分发，客户端拉取后应用到当前档案的临时层（Overlay）。
+    /// </summary>
+    public ReVersionString? TempClassPlanSource { get; set; }
+
+    /// <summary>
     /// 集控服务器类型
     /// </summary>
     public ManagementServerKind ServerKind { get; set; } = ManagementServerKind.Serverless;

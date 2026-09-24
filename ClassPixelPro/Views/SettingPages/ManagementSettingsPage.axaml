@@ -86,9 +86,13 @@
                     </StackPanel>
                 </controls1:SettingsExpanderItem>
                 <controls1:SettingsExpanderItem>
-                    <TextBlock TextWrapping="Wrap">
-                        <Run>CUID：</Run><Run Text="{Binding ManagementService.Persist.ClientUniqueId}" />
-                    </TextBlock>
+                    <StackPanel Spacing="8">
+                        <TextBlock TextWrapping="Wrap">
+                            <Run>CUID：</Run><Run Text="{Binding ManagementService.Persist.ClientUniqueId}" />
+                        </TextBlock>
+                        <Button Content="复制 CUID" Click="ButtonCopyCuid_OnClick"
+                                HorizontalAlignment="Left" Padding="12 4" />
+                    </StackPanel>
                 </controls1:SettingsExpanderItem>
                 <controls1:SettingsExpanderItem
                     IsVisible="{Binding ManagementService.IsManagementEnabled}">
@@ -109,6 +113,70 @@
                     <TextBlock TextWrapping="Wrap">
                         <Run>服务端类型：</Run><Run Text="{Binding ManagementService.Manifest.ServerKind}"/>
                     </TextBlock>
+                </controls1:SettingsExpanderItem>
+            </StackPanel>
+
+            <StackPanel Classes="cardContainer"
+                        IsVisible="{Binding ManagementService.IsManagementEnabled}">
+                <controls1:SettingsExpanderItem>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="教师绑定" FontWeight="Bold"/>
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7">
+                            <Run>将本设备绑定到班主任账户，绑定后班主任可在微信端查看本设备的课表信息。</Run>
+                        </TextBlock>
+                    </StackPanel>
+                </controls1:SettingsExpanderItem>
+
+                <!-- 已绑定教师状态 -->
+                <controls1:SettingsExpanderItem IsVisible="{Binding ViewModel.IsTeacherBound}">
+                    <StackPanel Spacing="8">
+                        <TextBlock TextWrapping="Wrap">
+                            <Run>已绑定教师：</Run>
+                            <Run Text="{Binding ViewModel.BoundTeacherName}" FontWeight="Bold"/>
+                        </TextBlock>
+                        <Button Content="解绑" Click="ButtonUnbindTeacher_OnClick"
+                                HorizontalAlignment="Left" Padding="12 4" />
+                    </StackPanel>
+                </controls1:SettingsExpanderItem>
+
+                <!-- 未绑定时：显示绑定二维码区域 -->
+                <controls1:SettingsExpanderItem IsVisible="{Binding !ViewModel.IsTeacherBound}">
+                    <StackPanel Spacing="12">
+                        <!-- 二维码显示区域 -->
+                        <StackPanel IsVisible="{Binding ViewModel.BindingQrCodePath, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    HorizontalAlignment="Center" Spacing="8">
+                            <Path Data="{Binding ViewModel.BindingQrCodePath}"
+                                  Fill="Black"
+                                  Width="220" Height="220"
+                                  Stretch="Uniform"
+                                  HorizontalAlignment="Center"/>
+                            <TextBlock Text="请班主任用微信扫描此二维码绑定设备"
+                                       TextWrapping="Wrap" TextAlignment="Center"
+                                       HorizontalAlignment="Center" MaxWidth="280" Opacity="0.7"/>
+                            <TextBlock Text="等待绑定中…" 
+                                       IsVisible="{Binding ViewModel.IsPollingBindingStatus}"
+                                       HorizontalAlignment="Center" Opacity="0.6"/>
+                        </StackPanel>
+
+                        <!-- 加载中 -->
+                        <ProgressBar IsIndeterminate="True"
+                                     IsVisible="{Binding ViewModel.IsBindingQrLoading}"
+                                     HorizontalAlignment="Stretch" Width="220"/>
+
+                        <!-- 错误信息 -->
+                        <TextBlock Text="{Binding ViewModel.BindingErrorMessage}"
+                                   IsVisible="{Binding ViewModel.IsBindingErrorVisible}"
+                                   Foreground="IndianRed"
+                                   TextWrapping="Wrap" MaxWidth="280"
+                                   HorizontalAlignment="Center"/>
+
+                        <!-- 生成/刷新二维码按钮 -->
+                        <Button Content="生成绑定二维码" 
+                                Click="ButtonGenerateBindingQr_OnClick"
+                                IsEnabled="{Binding !ViewModel.IsBindingQrLoading}"
+                                HorizontalAlignment="Center" Padding="16 6"
+                                Classes="accent"/>
+                    </StackPanel>
                 </controls1:SettingsExpanderItem>
             </StackPanel>
 

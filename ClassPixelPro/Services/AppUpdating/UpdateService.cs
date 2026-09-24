@@ -60,6 +60,9 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
 
     private const string PhainonRootUrl = "https://class.imzcz.cn";
 
+    // FileMap JSON 使用 camelCase 属性名，需要匹配的 JsonSerializerOptions
+    private static readonly JsonSerializerOptions FileMapJsonOptions = new(JsonSerializerDefaults.Web);
+
     internal static string UpdateCachePath { get; } = Path.Combine(CommonDirectories.AppCacheFolderPath, "Update");
 
     public static string UpdateTempPath => Path.Combine(CommonDirectories.AppTempFolderPath, "Updating");
@@ -379,10 +382,66 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 throw new InvalidOperationException("文件图签名校验不通过");
             }
 
-            var fileMap = JsonSerializer.Deserialize<FileMap>(DistributionInfo.FileMapJson);
+            var fileMap = JsonSerializer.Deserialize<FileMap>(DistributionInfo.FileMapJson, FileMapJsonOptions);
             if (fileMap == null)
             {
                 throw new InvalidOperationException("文件图解析失败");
+            }
+
+            // 整包下载模式：当 files 为空且 ArchiveUrl 不为空时
+            var hasFiles = fileMap.Components.Values.Any(c => c.Files.Count > 0);
+            if (!hasFiles && !string.IsNullOrEmpty(fileMap.ArchiveUrl))
+            {
+                Logger.LogInformation("检测到整包下载模式，ArchiveUrl: {Url}", fileMap.ArchiveUrl);
+                CurrentWorkingStatus = UpdateWorkingStatus.DownloadingUpdates;
+                var ctsArchive = _downloadCancellationTokenSource = new CancellationTokenSource();
+                var cancellationTokenArchive = ctsArchive.Token;
+
+                var archivePath = Path.Combine(UpdateTempPath, "archive.zip");
+                if (!Directory.Exists(UpdateTempPath))
+                {
+                    Directory.CreateDirectory(UpdateTempPath);
+                }
+
+                // 下载整包 zip
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromMinutes(30);
+                using var response = await httpClient.GetAsync(fileMap.ArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationTokenArchive);
+                response.EnsureSuccessStatusCode();
+
+                DownloadingCountTotal = 1;
+                DownloadedCount = 0;
+                IsDownloadingProgressIndeterminate = false;
+
+                await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationTokenArchive);
+                await using var fileStream = File.Create(archivePath);
+
+                var buffer = new byte[81920];
+                int bytesRead;
+                long totalDownloaded = 0;
+                while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationTokenArchive)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationTokenArchive);
+                    totalDownloaded += bytesRead;
+                }
+
+                DownloadedCount = 1;
+                Logger.LogInformation("整包下载完成，大小: {Size} 字节", totalDownloaded);
+
+                // 保存 FileMap 和签名
+                await File.WriteAllTextAsync(Path.Combine(UpdateTempPath, "FileMap.json"), DistributionInfo.FileMapJson, cancellationTokenArchive);
+                await File.WriteAllTextAsync(Path.Combine(UpdateTempPath, "FileMap.json.sig"), DistributionInfo.FileMapSignature, cancellationTokenArchive);
+
+                var archiveDeploymentLock = new DeploymentLock()
+                {
+                    SubChannel = GetCurrentSubChannel(),
+                    FileMapSha512 = SHA512.HashData(Encoding.UTF8.GetBytes(DistributionInfo.FileMapJson))
+                };
+                await File.WriteAllTextAsync(Path.Combine(UpdateTempPath, "Deployment.lock"),
+                    JsonSerializer.Serialize(archiveDeploymentLock), cancellationTokenArchive);
+
+                Settings.LastUpdateStatus = UpdateStatus.UpdateDownloaded;
+                return;
             }
 
             CurrentWorkingStatus = UpdateWorkingStatus.DownloadingUpdates;
@@ -668,10 +727,120 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 throw new InvalidOperationException("文件图签名校验不通过");
             }
 
-            var fileMap = JsonSerializer.Deserialize<FileMap>(fileMapJson);
+            var fileMap = JsonSerializer.Deserialize<FileMap>(fileMapJson, FileMapJsonOptions);
             if (fileMap == null)
             {
                 throw new InvalidOperationException("文件图解析失败");
+            }
+
+            // 整包解压模式：当 files 为空且 ArchiveUrl 不为空时
+            var hasFiles = fileMap.Components.Values.Any(c => c.Files.Count > 0);
+            if (!hasFiles && !string.IsNullOrEmpty(fileMap.ArchiveUrl))
+            {
+                Logger.LogInformation("检测到整包解压模式");
+                var archivePath = Path.Combine(UpdateTempPath, "archive.zip");
+                if (!File.Exists(archivePath))
+                {
+                    throw new InvalidOperationException("整包 zip 文件不存在");
+                }
+
+                // 计算新部署目录
+                var rootArchive = CommonDirectories.AppPackageRoot;
+                var numArchive = 0;
+                fileMap.Variables["number"] = numArchive.ToString();
+                while (numArchive <= 255 && Directory.Exists(Path.Combine(rootArchive,
+                           VariableStringHelpers.ExpandString(fileMap.Components["app"].Root, fileMap.Variables))))
+                {
+                    numArchive++;
+                    fileMap.Variables["number"] = numArchive.ToString();
+                }
+
+                var archiveAppPath = Path.Combine(rootArchive,
+                    VariableStringHelpers.ExpandString(fileMap.Components["app"].Root, fileMap.Variables));
+                if (!Directory.Exists(archiveAppPath))
+                {
+                    Directory.CreateDirectory(archiveAppPath);
+                    await File.WriteAllTextAsync(Path.Combine(archiveAppPath, ".partial"), "");
+                }
+
+                // 解压 zip 到临时目录，再正确分发
+                // zip 包含完整发布结构：启动器(ClassPixelPro.exe) + PackageType + app-* 子目录
+                // 需要把 app-* 子目录的内容复制到 archiveAppPath，把启动器和 PackageType 复制到根目录
+                Logger.LogInformation("正在解压整包到临时目录");
+                var tempExtractPath = Path.Combine(UpdateTempPath, "archive_extracted");
+                if (Directory.Exists(tempExtractPath)) Directory.Delete(tempExtractPath, true);
+                Directory.CreateDirectory(tempExtractPath);
+
+                using (var archive = ZipFile.OpenRead(archivePath))
+                {
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (string.IsNullOrEmpty(entry.Name)) continue; // 跳过目录条目
+                        var destPath = Path.Combine(tempExtractPath, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                        var dir = Path.GetDirectoryName(destPath);
+                        if (dir != null && !Directory.Exists(dir))
+                        {
+                            Directory.CreateDirectory(dir);
+                        }
+                        entry.ExtractToFile(destPath, true);
+                    }
+                }
+
+                // 找到 zip 中的 app-* 目录，把内容复制到 archiveAppPath
+                var appSourceDir = Directory.GetDirectories(tempExtractPath, "app-*", SearchOption.TopDirectoryOnly).FirstOrDefault();
+                if (appSourceDir == null)
+                {
+                    throw new InvalidOperationException("zip 中未找到 app-* 目录");
+                }
+                Logger.LogInformation("正在复制应用文件到 {Path}", archiveAppPath);
+                foreach (var item in Directory.GetFileSystemEntries(appSourceDir))
+                {
+                    var itemName = Path.GetFileName(item);
+                    var dest = Path.Combine(archiveAppPath, itemName);
+                    if (Directory.Exists(item))
+                    {
+                        CopyDirectoryRecursive(item, dest);
+                    }
+                    else
+                    {
+                        File.Copy(item, dest, true);
+                    }
+                }
+
+                // 把启动器和 PackageType 复制到根目录
+                foreach (var rootFile in new[] { "ClassPixelPro.exe", "PackageType" })
+                {
+                    var srcFile = Path.Combine(tempExtractPath, rootFile);
+                    if (File.Exists(srcFile))
+                    {
+                        File.Copy(srcFile, Path.Combine(rootArchive, rootFile), true);
+                        Logger.LogInformation("已复制 {File} 到根目录", rootFile);
+                    }
+                }
+
+                // 清理临时解压目录
+                Directory.Delete(tempExtractPath, true);
+
+                // 复制 FileMap 和用户变量
+                File.Copy(Path.Combine(UpdateTempPath, "FileMap.json"), Path.Combine(archiveAppPath, "files.json"), true);
+                ConfigureFileHelper.SaveConfig(Path.Combine(archiveAppPath, "files.uvars.json"), fileMap.Variables);
+
+                // 激活新部署
+                await File.WriteAllTextAsync(Path.Combine(archiveAppPath, ".current"), "");
+                await File.WriteAllTextAsync(Path.Combine(Environment.CurrentDirectory, ".destroy"), "");
+                File.Delete(Path.Combine(archiveAppPath, ".partial"));
+                foreach (var deployment in Directory.GetDirectories(rootArchive)
+                             .Where(x => Path.GetFileName(x).StartsWith("app")
+                                         && Path.GetFullPath(Path.Combine(rootArchive, x)) != Path.GetFullPath(Environment.CurrentDirectory)
+                                         && File.Exists(Path.Combine(x, ".current"))))
+                {
+                    File.Delete(Path.Combine(deployment, ".current"));
+                }
+
+                Settings.LastUpdateStatus = UpdateStatus.UpdateDeployed;
+                Logger.LogInformation("整包部署成功");
+                await RemoveDownloadedFiles(false);
+                return;
             }
 
             Logger.LogInformation("正在解压并检验文件完整性");
@@ -921,5 +1090,18 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
         field = value;
         OnPropertyChanged(propertyName);
         return true;
+    }
+
+    private static void CopyDirectoryRecursive(string sourceDir, string destDir)
+    {
+        if (!Directory.Exists(destDir)) Directory.CreateDirectory(destDir);
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), true);
+        }
+        foreach (var dir in Directory.GetDirectories(sourceDir))
+        {
+            CopyDirectoryRecursive(dir, Path.Combine(destDir, Path.GetFileName(dir)));
+        }
     }
 }

@@ -10,6 +10,12 @@
                         xmlns:componentSettings="clr-namespace:ClassPixelPro.Models.ComponentSettings"
                         mc:Ignorable="d" 
                         d:DesignHeight="450" d:DesignWidth="800">
+    <!--
+        时钟组件布局说明：
+        使用 StackPanel 水平排列 HH + 冒号 + mm (+ 冒号 + ss)，
+        冒号通过 Opacity 控制闪烁，秒部分通过 IsVisible 控制显示。
+        这样无论冒号是否闪烁、是否显示秒，数字部分的布局始终一致，避免间距抖动。
+    -->
     <Grid VerticalAlignment="Center" HorizontalAlignment="Center"
           TextElement.FontSize="{DynamicResource MainWindowEmphasizedFontSize}"
           x:Name="Root"
@@ -18,25 +24,28 @@
           DataContext="{Binding RelativeSource={RelativeSource FindAncestor, AncestorType=local:ClockComponent}}">
         <Grid.Styles>
             <Style Selector="Grid#Root">
-                <Style Selector="^ TextBlock#TextBlock1">
+                <!-- 冒号默认透明（即隐藏），TimeSeparatorShowing 时显示 -->
+                <Style Selector="^ TextBlock.separator">
                     <Setter Property="Opacity" Value="0" />
-                    <Setter Property="Text" Value="{Binding CurrentTime, StringFormat={}{0:HH:mm}}" />
                 </Style>
-                <Style Selector="^.TimeSeparatorShowing TextBlock#TextBlock1">
+                <Style Selector="^.TimeSeparatorShowing TextBlock.separator">
                     <Setter Property="Opacity" Value="1" />
                 </Style>
-                <Style Selector="^.ShowSeconds TextBlock#TextBlock1">
-                    <Setter Property="Text" Value="{Binding CurrentTime, StringFormat={}{0:HH:mm:ss}}" />
+                <!-- 秒部分默认不可见，ShowSeconds 时显示 -->
+                <Style Selector="^ TextBlock.seconds">
+                    <Setter Property="IsVisible" Value="False" />
+                </Style>
+                <Style Selector="^.ShowSeconds TextBlock.seconds">
+                    <Setter Property="IsVisible" Value="True" />
                 </Style>
             </Style>
         </Grid.Styles>
-        <TextBlock x:Name="TextBlock1" />
-        <TextBlock HorizontalAlignment="Left"
-                   Text="{Binding CurrentTime, StringFormat={}{0:HH}}"
-                   Classes.hidden="{Binding IsTimeSeparatorShowing}"/>
-        <TextBlock HorizontalAlignment="Right"
-                   Text="{Binding CurrentTime, StringFormat={}{0:mm}}"
-                   TextAlignment="End"
-                   Classes.hidden="{Binding IsTimeSeparatorShowing}"/>
+        <StackPanel Orientation="Horizontal">
+            <TextBlock Text="{Binding CurrentTime, StringFormat={}{0:HH}}" />
+            <TextBlock Classes="separator" Text=":" />
+            <TextBlock Text="{Binding CurrentTime, StringFormat={}{0:mm}}" />
+            <TextBlock Classes="separator seconds" Text=":" />
+            <TextBlock Classes="seconds" Text="{Binding CurrentTime, StringFormat={}{0:ss}}" />
+        </StackPanel>
     </Grid>
 </controls:ComponentBase>

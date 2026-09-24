@@ -46,13 +46,19 @@ C-Info "参数: Version=$Version  OsName=$OsName  Arch=$Arch  BuildType=$BuildTy
 # ── 1. 环境准备 ──
 C-Step "1/6" "环境准备"
 
-$TempDir = "G:\Temp\msbuild"
+$TempDir = Join-Path $RepoRoot "_packtmp"
 if (-not (Test-Path $TempDir)) { New-Item -ItemType Directory -Path $TempDir -Force | Out-Null }
 $env:TMP = $TempDir
 $env:TEMP = $TempDir
 C-Ok "TMP/TEMP -> $TempDir"
 
-if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { C-Err "未找到 dotnet"; exit 1 }
+# 退出时清理临时目录的辅助函数（确保任何退出路径都清理 _packtmp）
+function Exit-Script([int]$Code = 0) {
+    Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+    exit $Code
+}
+
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { C-Err "未找到 dotnet"; Exit-Script 1 }
 C-Ok ".NET SDK $(dotnet --version 2>$null)"
 
 $pwshExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
@@ -65,11 +71,11 @@ if (-not $SkipBuild) {
     C-Step "2/6" "构建应用本体 (PublishApp)"
     C-Info "build.ps1 PublishApp --OsName $OsName --Arch $Arch --Package folder --BuildType $BuildType --BuildName appBase --AppVersion $Version"
     & $pwshExe -File "$RepoRoot\build.ps1" PublishApp --OsName $OsName --Arch $Arch --Package folder --BuildType $BuildType --BuildName appBase --AppVersion $Version
-    if ($LASTEXITCODE -ne 0) { C-Err "PublishApp 失败 (exit $LASTEXITCODE)"; exit 1 }
+    if ($LASTEXITCODE -ne 0) { C-Err "PublishApp 失败 (exit $LASTEXITCODE)"; Exit-Script 1 }
     C-Ok "应用本体构建完成"
 } else {
     C-Step "2/6" "跳过构建（使用已有产物）"
-    if (-not (Test-Path $AppPublishPath)) { C-Err "out\ClassPixelPro 不存在"; exit 1 }
+    if (-not (Test-Path $AppPublishPath)) { C-Err "out\ClassPixelPro 不存在"; Exit-Script 1 }
     C-Ok "使用已有 $AppPublishPath"
 }
 
@@ -89,7 +95,7 @@ if (-not $SkipBuild) {
         $launcherProj = Join-Path $RepoRoot "ClassPixelPro.Launcher\ClassPixelPro.Launcher.csproj"
         if (Test-Path $LauncherPublishPath) { Remove-Item $LauncherPublishPath -Recurse -Force }
         dotnet publish $launcherProj -c Release -r $rid --self-contained true -p:PublishSingleFile=true -p:PublishAot=false -p:PublishBuilding=true -p:PublishPlatform=$OsName -p:ClassPixelPro_PlatformTarget=$Arch -o $LauncherPublishPath
-        if ($LASTEXITCODE -ne 0) { C-Err "启动器回退编译也失败"; exit 1 }
+        if ($LASTEXITCODE -ne 0) { C-Err "启动器回退编译也失败"; Exit-Script 1 }
         $srcExe = Join-Path $LauncherPublishPath "ClassPixelPro.Launcher$([System.IO.Path]::GetExtension($LauncherExeName))"
         if (Test-Path $srcExe) { Move-Item $srcExe $LauncherExePath -Force }
         C-Ok "启动器回退编译完成（self-contained 单文件）"
@@ -98,7 +104,7 @@ if (-not $SkipBuild) {
     }
 } else {
     C-Step "3/6" "跳过启动器构建（使用已有产物）"
-    if (-not (Test-Path $LauncherExePath)) { C-Err "out\Launcher\$LauncherExeName 不存在"; exit 1 }
+    if (-not (Test-Path $LauncherExePath)) { C-Err "out\Launcher\$LauncherExeName 不存在"; Exit-Script 1 }
     C-Ok "使用已有 $LauncherExePath"
 }
 
@@ -171,3 +177,6 @@ if ($BuildType -eq "full") {
 }
 Write-Host ""
 C-Ok "打包完成。"
+
+# ── 清理临时目录 ──
+Exit-Script 0

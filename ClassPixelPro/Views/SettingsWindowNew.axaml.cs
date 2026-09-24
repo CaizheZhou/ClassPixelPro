@@ -33,6 +33,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Data.Core;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Labs.Input;
 using Avalonia.Media;
@@ -268,23 +269,17 @@ public partial class SettingsWindowNew : MyWindow, INavigationPageFactory
             var sayings = await new StreamReader(stream).ReadToEndAsync();
             ViewModel.EchoCaveTextsAll = [..sayings.Split(Environment.NewLine)];
         }
-        if (ViewModel.EchoCaveTexts.Count <= 0)
+        // 每次点击直接从全部文本中随机取一条显示，不再维护单独的待显示队列。
+        if (ViewModel.EchoCaveTextsAll.Count > 0)
         {
-            var collection = ViewModel.EchoCaveTextsAll.ToList();
-            var countRaw = collection.Count;
-            for (var i = 0; i < countRaw; i++)
-            {
-                var randomIndex = Random.Shared.Next(0, collection.Count - 1);
-                ViewModel.EchoCaveTexts.Add(collection[randomIndex]);
-                collection.RemoveAt(randomIndex);
-            }
+            var randomIndex = Random.Shared.Next(0, ViewModel.EchoCaveTextsAll.Count);
+            ViewModel.CurrentEchoCaveText = ViewModel.EchoCaveTextsAll[randomIndex];
         }
-        //Console.WriteLine(ViewModel.SayingsCollection.Count);
-        if (ViewModel.EchoCaveTexts.Count > 0)
-        {
-            ViewModel.CurrentEchoCaveText = ViewModel.EchoCaveTexts[0];
-            ViewModel.EchoCaveTexts.RemoveAt(0);
-        }
+    }
+
+    private async void EchoCaveGrid_OnPointerPressed(object sender, PointerPressedEventArgs e)
+    {
+        await UpdateEchoCaveAsync();
     }
 
     private async void NavigationServiceOnLoadCompleted(object sender, NavigationEventArgs e)

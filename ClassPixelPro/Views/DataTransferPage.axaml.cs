@@ -466,7 +466,13 @@ public partial class DataTransferPage : UserControl
             {
                 if (ViewModel.IsSettingsSelected)
                 {
-                    File.Copy(Path.Combine(CommonDirectories.AppRootFolderPath, "Settings.json"), Path.Combine(temp, "Settings.json"));
+                    // Settings.json 实际位于 AppRootFolderPath 下（见 SettingsService.LoadSettingsAsync/SaveSettings）。
+                    // 某些环境下该文件可能不存在（首次启动未保存过），需先检查再复制，避免 File.Copy 抛出 FileNotFoundException 导致导出崩溃。
+                    var settingsPath = Path.Combine(CommonDirectories.AppRootFolderPath, "Settings.json");
+                    if (File.Exists(settingsPath))
+                    {
+                        File.Copy(settingsPath, Path.Combine(temp, "Settings.json"));
+                    }
                 }
                 if (ViewModel.IsProfileSelected)
                 {
