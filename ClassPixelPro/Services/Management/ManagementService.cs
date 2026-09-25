@@ -9,6 +9,7 @@ using ClassPixelPro.Core.Abstractions.Services;
 using ClassPixelPro.Core.Abstractions.Services.Management;
 using ClassPixelPro.Core.Controls;
 using ClassPixelPro.Core.Enums;
+using ClassPixelPro.Core.Models.Components;
 using ClassPixelPro.Shared.Abstraction.Services;
 using ClassPixelPro.Shared.Enums;
 using ClassPixelPro.Shared.Models.Management;
@@ -422,7 +423,16 @@ public class ManagementService : ObservableRecipient, IManagementService
                 try
                 {
                     var componentsService = IAppHost.GetService<ComponentsService>();
-                    // 读取组件方案配置并应用
+                    // 读取保存的组件方案配置（ComponentProfile JSON）
+                    var scheme = LoadConfig<ComponentProfile>(ManagementComponentSchemePath);
+                    // 将集控组件方案写入组件配置目录，使用固定名称 "Management"，
+                    // 便于用户在编辑模式下查看与切换；随后刷新方案列表并立即应用。
+                    const string managementSchemeName = "Management";
+                    var schemePath = Path.Combine(ComponentsService.ComponentSettingsPath,
+                        managementSchemeName + ".json");
+                    SaveConfig(schemePath, scheme);
+                    componentsService.RefreshConfigs();
+                    componentsService.CurrentComponents = scheme;
                     Logger.LogTrace("应用集控组件方案成功");
                 }
                 catch (Exception exComponentScheme)
@@ -641,7 +651,7 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// </list>
     /// </para>
     /// </summary>
-    private async Task<bool> ApplyTempClassPlanAsync()
+    public async Task<bool> ApplyTempClassPlanAsync()
     {
         try
         {

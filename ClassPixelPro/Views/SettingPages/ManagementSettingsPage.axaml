@@ -117,6 +117,53 @@
                 </controls1:SettingsExpanderItem>
             </StackPanel>
 
+            <!-- 集控策略同步：可选择拉取特定配置 -->
+            <StackPanel Classes="cardContainer"
+                        IsVisible="{Binding ManagementService.IsManagementEnabled}">
+                <controls1:SettingsExpanderItem>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="集控策略同步" FontWeight="Bold"/>
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7">
+                            <Run>从服务器强制拉取选定的集控内容并覆盖本地设置。如果服务器同时下发了全局课表和本设备的专属课表，将优先使用专属课表。</Run>
+                        </TextBlock>
+                        <StackPanel Spacing="4" Margin="0 4 0 0">
+                            <CheckBox x:Name="PullClassPlanCheckBox"
+                                      Content="课表（ClassPlan + ClassPlanGroups）"
+                                      IsChecked="True"/>
+                            <CheckBox x:Name="PullTimeLayoutCheckBox"
+                                      Content="时间表（TimeLayouts）"
+                                      IsChecked="True"/>
+                            <CheckBox x:Name="PullSubjectsCheckBox"
+                                      Content="科目（Subjects）"
+                                      IsChecked="True"/>
+                            <CheckBox x:Name="PullAppSettingsCheckBox"
+                                      Content="应用设置（AppSettings）"
+                                      IsChecked="True"/>
+                            <CheckBox x:Name="PullComponentSchemeCheckBox"
+                                      Content="组件方案（ComponentScheme）"
+                                      IsChecked="True"/>
+                            <CheckBox x:Name="PullThemeCheckBox"
+                                      Content="主题（Theme）"
+                                      IsChecked="True"/>
+                            <CheckBox x:Name="PullTempClassPlanCheckBox"
+                                      Content="临时调课（TempClassPlan）"
+                                      IsChecked="True"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0 4 0 0">
+                            <Button Content="拉取选中并覆盖"
+                                    Click="ButtonPullSelected_OnClick"
+                                    Classes="accent"
+                                    HorizontalAlignment="Left"
+                                    Padding="16 6"/>
+                            <Button Content="全部拉取并覆盖"
+                                    Click="ButtonPullAll_OnClick"
+                                    HorizontalAlignment="Left"
+                                    Padding="16 6"/>
+                        </StackPanel>
+                    </StackPanel>
+                </controls1:SettingsExpanderItem>
+            </StackPanel>
+
             <StackPanel Classes="cardContainer"
                         IsVisible="{Binding ManagementService.IsManagementEnabled}">
                 <controls1:SettingsExpanderItem>
