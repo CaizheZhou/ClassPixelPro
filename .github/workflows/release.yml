@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '2.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '要发布的 tag（如 2.1.2.1）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build_${{ matrix.build_type }}_win-x64
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [full, selfContained]
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', github.event.inputs.release_tag) || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build App (PublishApp)
+        shell: pwsh
+        env:
+          osName: windows
+          arch: x64
+          buildType: ${{ matrix.build_type }}
+          package: folder
+          buildName: appBase
+          appVersion: ${{ env.RELEASE_TAG }}
+        run: pwsh -ep bypass ./build.ps1 PublishApp
+
+      - name: Build Launcher (PublishLauncher, native AOT)
+        shell: pwsh
+        env:
+          osName: windows
+          arch: x64
+          buildType: aot
+          package: singleFile
+          buildName: launcher
+        run: pwsh -ep bypass ./build.ps1 PublishLauncher
+
+      - name: Rename artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ./rel -Force | Out-Null
+          $suffix = if ('${{ matrix.build_type }}' -eq 'full') { '' } else { '-sc' }
+          Copy-Item ./out/out_appBase_windows_x64_${{ matrix.build_type }}_folder.zip "./rel/ClassPixelPro_$($env:RELEASE_TAG)_win-x64$suffix.zip"
+          if (Test-Path ./out/out_launcher_windows_x64_aot_singleFile.zip) {
+            Copy-Item ./out/out_launcher_windows_x64_aot_singleFile.zip "./rel/ClassPixelPro_Launcher_$($env:RELEASE_TAG)_win-x64.zip"
+          }
+          Get-ChildItem ./rel
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release_${{ matrix.build_type }}
+          path: ./rel/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./rel
+          pattern: release_*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" ./rel/*.zip \
+            --title "ClassPixelPro $RELEASE_TAG" \
+            --generate-notes \
+            --latest
