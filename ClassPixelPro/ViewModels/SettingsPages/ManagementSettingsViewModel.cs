@@ -1,4 +1,6 @@
-﻿using Avalonia.Media;
+﻿﻿using System.Collections.ObjectModel;
+using Avalonia.Media;
+using ClassPixelPro.Core.Abstractions.Services.Management;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace ClassPixelPro.ViewModels.SettingsPages;
@@ -41,4 +43,10 @@ public partial class ManagementSettingsViewModel : ObservableObject
     /// 绑定二维码区域是否显示错误。
     /// </summary>
     [ObservableProperty] private bool _isBindingErrorVisible;
+
+    /// <summary>
+    /// 集控调课操作日志列表。由 <see cref="ManagementSettingsPage"/> 通过 DispatcherTimer 定时
+    /// 从 <c>IManagementService.ManagementLogs</c> 同步到此集合以驱动 UI 刷新。
+    /// </summary>
+    public ObservableCollection<ManagementLogEntry> ManagementLogs { get; } = new();
 }

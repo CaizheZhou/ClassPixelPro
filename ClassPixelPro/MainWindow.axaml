@@ -132,7 +132,7 @@
         </NativeMenu>
     </Window.Resources>
     <Window.Styles>
-        <Style Selector="Grid#GridRoot">
+        <Style Selector="Grid#MainWindowGridRoot">
             <Setter Property="IsVisible">
                 <MultiBinding Converter="{x:Static BoolConverters.Or}">
                     <Binding Path="SettingsService.Settings.IsMainWindowVisible"/>
@@ -265,7 +265,7 @@
                                 </LayoutTransformControl.LayoutTransform>
                                 <Grid ClipToBounds="False"
                                       HorizontalAlignment="Stretch"
-                                      x:Name="GridRoot"
+                                      x:Name="MainWindowGridRoot"
                                       RenderTransformOrigin="0,0"
 
                                       Classes.ExplicitShowed="{Binding ViewModel.IsNotificationWindowExplicitShowed, Mode=OneWay}"

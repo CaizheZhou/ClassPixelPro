@@ -481,7 +481,7 @@
                 <TextBlock FontWeight="Bold">
                     <Run Text="要删除课表" />
                     <Run
-                        Text="{Binding ViewModel.SelectedClassPlan.Name}" />
+                        Text="{Binding ViewModel.SelectedClassPlan.Name, FallbackValue=''}" />
                     <Run Text="吗？" />
                 </TextBlock>
                 <TextBlock Text="此操作无法撤销。" />
@@ -592,7 +592,7 @@
                                                         
                                                         <ci:FluentIcon Glyph="{ci:FI DocumentDataRegular}" Margin="0 0 4 0"
                                                                        IsVisible="{Binding !IsGroup}" />
-                                                        <TextBlock Text="{Binding ClassPlan.Name}"
+                                                        <TextBlock Text="{Binding ClassPlan.Name, FallbackValue=''}"
                                                                    IsVisible="{Binding !IsGroup}"
                                                                    VerticalAlignment="Center" />
 
@@ -603,12 +603,12 @@
                                                                 ToolTip.Tip="触发规则"
                                                                 IsVisible="{Binding !IsGroup}"
                                                                 Classes="ClassPlanTag l-secondary"
-                                                                Classes.IsTagActivated="{Binding ClassPlan.IsActivated}">
+                                                                Classes.IsTagActivated="{Binding ClassPlan.IsActivated, FallbackValue={x:False}}">
                                                             <StackPanel Orientation="Horizontal"
                                                                         VerticalAlignment="Center">
                                                                 <ci:FluentIcon Classes="ClassTimeRuleTagIcon"
-                                                                               Classes.IsEnabled="{Binding ClassPlan.IsEnabled}"
-                                                                               Classes.IsOverlay="{Binding ClassPlan.IsOverlay}">
+                                                                               Classes.IsEnabled="{Binding ClassPlan.IsEnabled, FallbackValue={x:False}}"
+                                                                               Classes.IsOverlay="{Binding ClassPlan.IsOverlay, FallbackValue={x:False}}">
                                                                     <ci:FluentIcon.Styles>
                                                                         <Style Selector="ci|FluentIcon.ClassTimeRuleTagIcon">
                                                                             <Setter Property="Glyph"
@@ -626,12 +626,12 @@
                                                                 </ci:FluentIcon>
 
                                                                 <TextBlock Margin="2 0 0 0"
-                                                                           Text="{Binding ClassPlan.TimeRule.WeekDay, Converter={StaticResource WeekIndexToWeekStringConverter}}">
+                                                                           Text="{Binding ClassPlan.TimeRule.WeekDay, Converter={StaticResource WeekIndexToWeekStringConverter}, FallbackValue=''}">
                                                                     <TextBlock.IsVisible>
                                                                         <MultiBinding
                                                                             Converter="{x:Static BoolConverters.And}">
-                                                                            <Binding Path="ClassPlan.IsEnabled" />
-                                                                            <Binding Path="!ClassPlan.IsOverlay" />
+                                                                            <Binding Path="ClassPlan.IsEnabled" FallbackValue="{x:False}" />
+                                                                            <Binding Path="!ClassPlan.IsOverlay" FallbackValue="{x:False}" />
                                                                         </MultiBinding>
                                                                     </TextBlock.IsVisible>
                                                                 </TextBlock>
@@ -646,22 +646,23 @@
                                                                             Converter="{x:Static BoolConverters.And}">
                                                                             <Binding Path="ClassPlan.TimeRule.WeekCountDiv"
                                                                                 Converter="{x:Static ObjectConverters.NotEqual}"
-                                                                                ConverterParameter="{StaticResource Zero}" />
-                                                                            <Binding Path="ClassPlan.IsEnabled" />
-                                                                            <Binding Path="!ClassPlan.IsOverlay" />
+                                                                                ConverterParameter="{StaticResource Zero}"
+                                                                                FallbackValue="{x:False}" />
+                                                                            <Binding Path="ClassPlan.IsEnabled" FallbackValue="{x:False}" />
+                                                                            <Binding Path="!ClassPlan.IsOverlay" FallbackValue="{x:False}" />
                                                                         </MultiBinding>
                                                                     </TextBlock.IsVisible>
 
-                                                                    <Run Text="{Binding ClassPlan.TimeRule.WeekCountDiv}" />
+                                                                    <Run Text="{Binding ClassPlan.TimeRule.WeekCountDiv, FallbackValue=''}" />
                                                                     <Run Text="/" />
                                                                     <Run
-                                                                        Text="{Binding ClassPlan.TimeRule.WeekCountDivTotal}" />
+                                                                        Text="{Binding ClassPlan.TimeRule.WeekCountDivTotal, FallbackValue=''}" />
                                                                     <Run Text="周" />
                                                                 </TextBlock>
 
                                                                 <TextBlock Margin="2 0 0 0" Padding="0 0 4 0"
                                                                            Text="临时层"
-                                                                           IsVisible="{Binding ClassPlan.IsOverlay}"
+                                                                           IsVisible="{Binding ClassPlan.IsOverlay, FallbackValue={x:False}}"
                                                                            FontWeight="Bold" FontStyle="Italic" />
                                                             </StackPanel>
                                                         </Border>
@@ -673,7 +674,7 @@
                                                                 ToolTip.Tip="时间表"
                                                                 IsVisible="{Binding !IsGroup}"
                                                                 Classes="ClassPlanTag l-secondary"
-                                                                Classes.IsWrong="{Binding ClassPlan.TimeLayoutId, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static system:Guid.Empty}}">
+                                                                Classes.IsWrong="{Binding ClassPlan.TimeLayoutId, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static system:Guid.Empty}, FallbackValue={x:False}}">
                                                             <StackPanel Orientation="Horizontal"
                                                                         VerticalAlignment="Center">
                                                                 <ci:FluentIcon Glyph="{ci:FI TableRegular}" />
@@ -681,12 +682,12 @@
                                                                 <TextBlock VerticalAlignment="Center"
                                                                            Margin="4 0 0 0"
                                                                            Classes="ClassTableTimeLayoutTagText"
-                                                                           Classes.IsWrong="{Binding ClassPlan.TimeLayoutId, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static system:Guid.Empty}}">
+                                                                           Classes.IsWrong="{Binding ClassPlan.TimeLayoutId, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static system:Guid.Empty}, FallbackValue={x:False}}">
                                                                     <TextBlock.Styles>
                                                                         <Style
                                                                             Selector="TextBlock.ClassTableTimeLayoutTagText">
                                                                             <Setter Property="Text"
-                                                                                Value="{Binding ClassPlan.TimeLayout.Name}" />
+                                                                                Value="{Binding ClassPlan.TimeLayout.Name, FallbackValue=''}" />
                                                                             <Style Selector="^.IsWrong">
                                                                                 <Setter Property="Text" Value="？？？" />
                                                                             </Style>
@@ -728,7 +729,7 @@
                                                         Label="创建临时层"
                                                         ToolTip.Tip="创建临时课表层。"
                                                         Click="ButtonOpenCreateOverlayClassPlanFlyout_OnClick"
-                                                        IsEnabled="{Binding ViewModel.SelectedClassPlan.IsOverlay, Converter={StaticResource BooleanToBooleanReConverter}}"
+                                                        IsEnabled="{Binding ViewModel.SelectedClassPlan.IsOverlay, Converter={StaticResource BooleanToBooleanReConverter}, FallbackValue={x:False}}"
                                                         Flyout="{StaticResource CreateOverlayFlyout}" />
                                                     <controls:CommandBarButton
                                                         IconSource="{ci:FluentIconSource &#xe61d;}"
@@ -882,7 +883,7 @@
                                                     <Grid RowDefinitions="*, Auto">
                                                         <ListBox
                                                             Grid.Row="0"
-                                                            SelectedValue="{Binding $parent[views:ProfileSettingsWindow].ViewModel.SelectedClassInfo.SubjectId, Mode=OneWay}"
+                                                            SelectedValue="{Binding $parent[views:ProfileSettingsWindow].ViewModel.SelectedClassInfo.SubjectId, Mode=OneWay, FallbackValue={x:Static system:Guid.Empty}}"
                                                             SelectedValueBinding="{Binding Key}"
                                                             ItemsSource="{Binding $parent[views:ProfileSettingsWindow].ViewModel.Subjects.List}">
                                                             <ListBox.Styles>
@@ -1012,8 +1013,8 @@
                                         <Grid RowDefinitions="*, Auto">
                                             <ListBox
                                                 Grid.Row="0"
-                                                IsEnabled="{Binding !ViewModel.SelectedClassInfo.IsEmpty}"
-                                                SelectedValue="{Binding ViewModel.SelectedClassInfo.SubjectId, Mode=OneWay}"
+                                                IsEnabled="{Binding !ViewModel.SelectedClassInfo.IsEmpty, FallbackValue={x:False}}"
+                                                SelectedValue="{Binding ViewModel.SelectedClassInfo.SubjectId, Mode=OneWay, FallbackValue={x:Static system:Guid.Empty}}"
                                                 SelectedValueBinding="{Binding Key}"
                                                 ItemsSource="{Binding ViewModel.Subjects.List}">
                                                 <ListBox.Styles>
@@ -1906,7 +1907,7 @@
                                       Data="{Binding ViewModel.SelectedTransferInfo}">
                             <Grid RowDefinitions="Auto, *, Auto, Auto">
                                 <Grid Grid.Row="0" Margin="12 16 18 0" 
-                                      IsVisible="{Binding !ViewModel.SelectedTransferInfo.HidePageTitle}"
+                                      IsVisible="{Binding !ViewModel.SelectedTransferInfo.HidePageTitle, FallbackValue={x:False}}"
                                       Classes.FullWidth="{Binding ViewModel.SelectedTransferInfo.UseFullWidth, TargetNullValue={x:False}, FallbackValue={x:False}}"
                                       x:Name="TitleContainer">
                                     <Grid.Styles>

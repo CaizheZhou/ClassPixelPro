@@ -183,6 +183,14 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         Profile.TimeLayouts.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.TimeLayoutUpdated, args);
         Profile.Subjects.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.SubjectUpdated, args);
         spanLoadingProfile?.Finish();
+
+        // Profile 加载完毕后，向集控后端上报当前实际使用的课表/时间表/科目。
+        // 必须在 LoadProfileAsync 完成后调用，因为 SetupManagement() 在 LoadProfileAsync() 之前执行，
+        // 此时 Profile 才包含实际的课表数据（集控下发 + 用户手动修改的合并结果）。
+        if (ManagementService.IsManagementEnabled)
+        {
+            _ = Task.Run(() => ManagementService.ReportCurrentProfileAsync());
+        }
     }
 
     public void AuditProfileChangeEvent(AuditEvents eventType, NotifyCollectionChangedEventArgs args)

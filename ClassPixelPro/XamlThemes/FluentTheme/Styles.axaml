@@ -147,8 +147,8 @@
                                             </Canvas>
                                             <ContentPresenter
                                                 MaxHeight="{DynamicResource IslandContainerHeight}"
-                                                Content="{Binding OverlayContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}"
-                                                ContentTemplate="{Binding OverlayContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}" />
+                                                Content="{Binding OverlayContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}"
+                                                ContentTemplate="{Binding OverlayContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}" />
                                         </Panel>
                                     </Border>
                                 </Grid>
@@ -183,8 +183,8 @@
                                                 Padding="12 0">
                                                 <ContentPresenter x:Name="OverlayMaskContent"
                                                                   Opacity="0"
-                                                                  Content="{Binding MaskContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}"
-                                                                  ContentTemplate="{Binding MaskContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}">
+                                                                  Content="{Binding MaskContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}"
+                                                                  ContentTemplate="{Binding MaskContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}">
                                                     <ContentPresenter.RenderTransform>
                                                         <TransformGroup>
                                                             <ScaleTransform />

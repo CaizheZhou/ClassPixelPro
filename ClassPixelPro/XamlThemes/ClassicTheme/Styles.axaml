@@ -133,8 +133,8 @@
                                 </Canvas>
                             </Border>
                             <ContentPresenter
-                                Content="{Binding OverlayContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}"
-                                ContentTemplate="{Binding OverlayContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}" />
+                                Content="{Binding OverlayContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}"
+                                ContentTemplate="{Binding OverlayContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}" />
 
                         </Grid>
 
@@ -149,8 +149,8 @@
                             </Border.RenderTransform>
                             <ContentPresenter x:Name="OverlayMaskContent"
                                               Opacity="0"
-                                              Content="{Binding MaskContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}"
-                                              ContentTemplate="{Binding MaskContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}}" />
+                                              Content="{Binding MaskContent.Content, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}"
+                                              ContentTemplate="{Binding MaskContent.ContentTemplate, RelativeSource={RelativeSource AncestorType=controls:MainWindowLine}, FallbackValue={x:Null}}" />
                         </Border>
                     </Grid>
                 </Grid>

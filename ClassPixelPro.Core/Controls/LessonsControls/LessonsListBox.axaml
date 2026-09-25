@@ -40,7 +40,7 @@
         <Setter Property="lessonsControls:LessonControlBase.ClassPlan" Value="{Binding $self.ClassPlan, Mode=OneWay}"/>
         <Setter Property="Height" Value="40"/>
         <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled"/>
-        <Setter Property="ItemsSource" Value="{Binding ClassPlan.TimeLayout.Layouts, RelativeSource={RelativeSource Self}, Mode=OneWay}"/>
+        <Setter Property="ItemsSource" Value="{Binding ClassPlan.TimeLayout.Layouts, RelativeSource={RelativeSource Self}, Mode=OneWay, FallbackValue={x:Null}}"/>
         <Setter Property="ItemsPanel">
             <Setter.Value>
                 <ItemsPanelTemplate>

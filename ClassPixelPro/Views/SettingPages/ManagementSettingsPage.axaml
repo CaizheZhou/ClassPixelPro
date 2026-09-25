@@ -12,7 +12,8 @@
       mc:Ignorable="d" 
       d:DataContext="{d:DesignInstance local:ManagementSettingsPage}"
       d:DesignHeight="450" d:DesignWidth="800"
-      Loaded="ManagementSettingsPage_OnLoaded">
+      Loaded="ManagementSettingsPage_OnLoaded"
+      Unloaded="ManagementSettingsPage_OnUnloaded">
 
     <ScrollViewer>
         <StackPanel Classes="settings-container animated-intro">
@@ -188,6 +189,62 @@
                                 IsEnabled="{Binding !ViewModel.IsBindingQrLoading}"
                                 HorizontalAlignment="Center" Padding="16 6"
                                 Classes="accent"/>
+                    </StackPanel>
+                </controls1:SettingsExpanderItem>
+            </StackPanel>
+
+            <!-- 调课日志区域：仅在集控启用时显示 -->
+            <StackPanel Classes="cardContainer"
+                        IsVisible="{Binding ManagementService.IsManagementEnabled}">
+                <controls1:SettingsExpanderItem>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="调课日志" FontWeight="Bold"/>
+                        <TextBlock TextWrapping="Wrap" Opacity="0.7">
+                            <Run>显示班主任通过集控后端对本设备课表进行的调课操作历史（最近 100 条）。</Run>
+                        </TextBlock>
+                    </StackPanel>
+                </controls1:SettingsExpanderItem>
+                <controls1:SettingsExpanderItem>
+                    <StackPanel Orientation="Vertical" Spacing="8">
+                        <!-- 空状态提示 -->
+                        <TextBlock Text="暂无调课日志"
+                                   Opacity="0.6"
+                                   IsVisible="{Binding !ViewModel.ManagementLogs.Count}"/>
+                        <!-- 日志列表 -->
+                        <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding ViewModel.ManagementLogs}"
+                                          IsVisible="{Binding !!ViewModel.ManagementLogs.Count}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0 0 0 4" Padding="10 6" CornerRadius="4"
+                                                Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+                                            <StackPanel Orientation="Vertical" Spacing="2">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss}'}"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12" />
+                                                    <TextBlock Text="{Binding Action}" FontWeight="SemiBold" />
+                                                    <TextBlock Text="✓" Foreground="Green"
+                                                               IsVisible="{Binding Success}" />
+                                                    <TextBlock Text="✗" Foreground="Red"
+                                                               IsVisible="{Binding !Success}" />
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="{Binding Detail}"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                               FontSize="12"
+                                                               TextWrapping="Wrap" MaxWidth="500" />
+                                                    <TextBlock Text="{Binding ErrorMessage}"
+                                                               Foreground="Red" FontSize="12"
+                                                               TextWrapping="Wrap" MaxWidth="500"
+                                                               IsVisible="{Binding ErrorMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </StackPanel>
                 </controls1:SettingsExpanderItem>
             </StackPanel>

@@ -380,3 +380,9 @@ ClassPixelPro-dist/
 ClassPixelPro-dist-*/
 ClassPixelPro_*.zip
 pack_log*.txt
+
+# 编译服务器缓存（Roslyn/VBCSCompiler），不属于源码
+_packtmp/
+
+# Mimosa 安全插件内部状态（勿入库）
+.mimosa/

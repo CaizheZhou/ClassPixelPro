@@ -25,6 +25,7 @@ using ClassPixelPro.Shared.Protobuf.Service;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FluentAvalonia.UI.Controls;
 using Microsoft.Extensions.Logging;
+using Avalonia.Threading;
 
 using static ClassPixelPro.Shared.Helpers.ConfigureFileHelper;
 
@@ -120,6 +121,15 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// 仅在首次连接成功后上报一次，避免每次轮询都上报浪费带宽。
     /// </summary>
     private bool _hasReported = false;
+
+    /// <summary>
+    /// 集控调课与策略拉取等操作的内存日志队列。保留最近 <see cref="MaxLogEntries"/> 条。
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentQueue<ManagementLogEntry> _managementLogs = new();
+    private const int MaxLogEntries = 100;
+
+    /// <inheritdoc />
+    public IReadOnlyList<ManagementLogEntry> ManagementLogs => _managementLogs.ToList();
 
     private ILogger<ManagementService> Logger { get; }
     public IAuthorizeService AuthorizeService { get; }
@@ -298,12 +308,12 @@ public class ManagementService : ObservableRecipient, IManagementService
 
         Logger.LogInformation("正在初始化集控");
 
-        // 启动定时刷新（每 30 秒）
+        // 启动定时刷新（每 5 秒，同时上报设备状态）
         _ = Task.Run(async () =>
         {
             while (IsManagementEnabled)
             {
-                await Task.Delay(TimeSpan.FromSeconds(30));
+                await Task.Delay(TimeSpan.FromSeconds(5));
                 if (!IsManagementEnabled) break;
                 try
                 {
@@ -312,6 +322,15 @@ public class ManagementService : ObservableRecipient, IManagementService
                 catch (Exception ex)
                 {
                     Logger.LogError(ex, "定时刷新集控配置失败");
+                }
+                // 上报设备当前状态（当前课程/课间、时间段、剩余时间）
+                try
+                {
+                    await ReportDeviceStatusAsync();
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogWarning(ex, "定时上报设备状态失败");
                 }
             }
         });
@@ -421,13 +440,25 @@ public class ManagementService : ObservableRecipient, IManagementService
                     await Connection.SaveJsonAsync<object>(Manifest.TempClassPlanSource.Value.Value!, ManagementTempClassPlanPath);
                     Versions.TempClassPlanVersion = Manifest.TempClassPlanSource.Value.Version;
                     // 应用临时课表到当前档案的临时层
-                    await ApplyTempClassPlanAsync();
-                    Logger.LogInformation("已拉取并应用集控临时调课课表，版本 {Version}", Versions.TempClassPlanVersion);
+                    var applied = await ApplyTempClassPlanAsync();
+                    if (applied)
+                    {
+                        Logger.LogInformation("已拉取并应用集控临时调课课表，版本 {Version}", Versions.TempClassPlanVersion);
+                    }
                 }
                 catch (Exception exTempClassPlan)
                 {
                     Logger.LogError(exTempClassPlan, "应用集控临时调课课表失败");
                 }
+            }
+            else if (Manifest.TempClassPlanSource.HasValue &&
+                     Manifest.TempClassPlanSource.Value.Version == 0 &&
+                     Versions.TempClassPlanVersion > 0)
+            {
+                // 班主任端已删除临时课表（后端 version 回到 0），清除本地 overlay 恢复原课表
+                Logger.LogInformation("集控临时调课课表已被删除（manifest version=0），清除本地 overlay");
+                await ClearTempClassPlanOverlayAsync();
+                Versions.TempClassPlanVersion = 0;
             }
             // 拉取帮助信息
             if (Manifest.HelpInfoSource.HasValue &&
@@ -448,11 +479,10 @@ public class ManagementService : ObservableRecipient, IManagementService
             // 保存版本号
             SaveSettings();
 
-            // 首次连接成功后上报当前课表/时间表/科目给后端（仅上报一次，避免浪费带宽）
-            if (!_hasReported)
-            {
-                await ReportCurrentProfileAsync();
-            }
+            // 注意：ReportCurrentProfileAsync 不在此处调用。
+            // 因为 SetupManagement() 在 LoadProfileAsync() 之前执行，此时 ProfileService.Profile
+            // 还是空的 new Profile()，上报的会是空数据。改为在 ProfileService.LoadProfileAsync()
+            // 末尾调用，以确保上报的是客户端实际加载的课表数据。
         }
         catch (Exception e)
         {
@@ -496,15 +526,22 @@ public class ManagementService : ObservableRecipient, IManagementService
     }
 
     /// <summary>
-    /// 上报当前档案中的课表/时间表/科目配置给集控后端。
+    /// 上报当前档案中的课表/时间表/科目/课表组配置给集控后端。
     /// <para>
-    /// 仅在首次连接成功后调用一次。从 <see cref="Manifest.PolicySource"/> 中提取
-    /// 集控 base URL，构造 <c>/serverless/report?cuid=...</c> 上报端点。
+    /// 应在 <see cref="ProfileService.LoadProfileAsync"/> 完成后调用，以确保
+    /// <see cref="IProfileService.Profile"/> 已加载实际课表数据（包含集控下发与
+    /// 用户手动修改的合并结果），而不是空的默认 Profile。
+    /// 仅在首次成功上报后通过 <see cref="_hasReported"/> 标志去重，避免浪费带宽。
     /// 失败时仅记录警告，不影响集控主流程。
     /// </para>
     /// </summary>
-    private async Task ReportCurrentProfileAsync()
+    public async Task ReportCurrentProfileAsync()
     {
+        if (_hasReported)
+        {
+            return;
+        }
+
         try
         {
             var profileService = IAppHost.TryGetService<IProfileService>();
@@ -515,11 +552,32 @@ public class ManagementService : ObservableRecipient, IManagementService
             }
 
             var profile = profileService.Profile;
+            // 上报完整的当前档案数据：课表、时间表、科目、课表组、当前选中的组。
+            // 注意：profile.ClassPlans 是客户端实际使用的课表（集控下发 + 用户手动修改的合并结果），
+            // 而不是集控全局课表。班主任端通过 /api/teacher/classplan/:cuid 拉取 per-device 记录，
+            // 即可看到客户端当前实际使用的课表。
             var reportBody = new
             {
-                classplan = profile.ClassPlans,
-                timeLayout = profile.TimeLayouts,
-                subjects = profile.Subjects
+                classplan = new
+                {
+                    ClassPlans = profile.ClassPlans,
+                    ClassPlanGroups = profile.ClassPlanGroups,
+                    SelectedClassPlanGroupId = profile.SelectedClassPlanGroupId,
+                    // 内嵌 Subjects 和 TimeLayouts，便于后端 fallback 提取
+                    Subjects = profile.Subjects,
+                    TimeLayouts = profile.TimeLayouts,
+                    Name = profile.Name,
+                },
+                timeLayout = new
+                {
+                    TimeLayouts = profile.TimeLayouts,
+                    Name = profile.Name,
+                },
+                subjects = new
+                {
+                    Subjects = profile.Subjects,
+                    Name = profile.Name,
+                }
             };
             var reportJson = System.Text.Json.JsonSerializer.Serialize(reportBody);
 
@@ -537,7 +595,8 @@ public class ManagementService : ObservableRecipient, IManagementService
             var response = await httpClient.PostAsync(reportUri, content);
             response.EnsureSuccessStatusCode();
             _hasReported = true;
-            Logger.LogInformation("已上报当前课表/时间表/科目给后端");
+            Logger.LogInformation("已上报当前课表/时间表/科目给后端（ClassPlans={ClassPlanCount}, Subjects={SubjectCount}, TimeLayouts={TimeLayoutCount}）",
+                profile.ClassPlans.Count, profile.Subjects.Count, profile.TimeLayouts.Count);
         }
         catch (Exception ex)
         {
@@ -548,94 +607,518 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// <summary>
     /// 应用集控下发的临时调课课表到当前档案的临时层（Overlay）。
     /// <para>
-    /// 读取 <see cref="ManagementTempClassPlanPath"/> 中的 JSON，解析为
-    /// <see cref="TempClassPlanPayload"/>，将其中的 ClassPlan 作为临时层课表
-    /// 注入到当前 Profile，并启用 Overlay。
+    /// 支持两种载荷格式：
+    /// <list type="bullet">
+    /// <item>旧格式 <c>{ ClassPlan: ClassPlan, SourceClassPlanId, EnableDate }</c>：单个 ClassPlan 包装。</item>
+    /// <item>新格式（班主任端 saveTemp 保存的整个课表档案）：含 <c>ClassPlans</c> 字典、<c>Subjects</c>、<c>TimeLayouts</c> 等顶层字段。
+    /// 从中提取"今天"对应的 ClassPlan 作为 overlay，同时同步 Subjects/TimeLayouts 到当前 Profile。</item>
+    /// </list>
     /// </para>
     /// </summary>
-    private async Task ApplyTempClassPlanAsync()
+    private async Task<bool> ApplyTempClassPlanAsync()
     {
         try
         {
             if (!File.Exists(ManagementTempClassPlanPath))
             {
-                return;
+                return false;
             }
 
             var json = await File.ReadAllTextAsync(ManagementTempClassPlanPath);
             if (string.IsNullOrWhiteSpace(json))
             {
                 Logger.LogWarning("集控临时调课课表文件为空，跳过应用");
-                return;
+                return false;
             }
 
             var profileService = IAppHost.TryGetService<IProfileService>();
             if (profileService == null)
             {
                 Logger.LogWarning("ProfileService 不可用，无法应用集控临时调课课表");
-                return;
-            }
-
-            var payload = System.Text.Json.JsonSerializer.Deserialize<TempClassPlanPayload>(json, JsonHelperOptions);
-            if (payload?.ClassPlan == null)
-            {
-                Logger.LogWarning("集控临时调课课表载荷无效或 ClassPlan 为空，跳过应用");
-                return;
+                return false;
             }
 
             var profile = profileService.Profile;
-            var overlayCp = payload.ClassPlan;
+            ClassPlan? overlayCp = null;
+            Guid? sourceClassPlanId = null;
+
+            // 用 JsonDocument 判断载荷格式，兼容旧包装格式与班主任端整个档案格式
+            using (var doc = System.Text.Json.JsonDocument.Parse(json))
+            {
+                if (doc.RootElement.TryGetProperty("ClassPlan", out _))
+                {
+                    // 旧格式：{ ClassPlan: ClassPlan, SourceClassPlanId: ..., EnableDate: ... }
+                    var payload = System.Text.Json.JsonSerializer.Deserialize<TempClassPlanPayload>(json, JsonHelperOptions);
+                    if (payload?.ClassPlan != null)
+                    {
+                        overlayCp = payload.ClassPlan;
+                        sourceClassPlanId = payload.SourceClassPlanId;
+                    }
+                }
+                else if (doc.RootElement.TryGetProperty("ClassPlans", out _))
+                {
+                    // 新格式：班主任端 saveTemp 保存的整个课表档案
+                    var archive = System.Text.Json.JsonSerializer.Deserialize<TempClassPlanArchivePayload>(json, JsonHelperOptions);
+                    if (archive?.ClassPlans != null && archive.ClassPlans.Count > 0)
+                    {
+                        // 计算今天星期几（1=周一，7=周日，与 TimeRule.WeekDay 一致）
+                        var todayWeekDay = DateTime.Today.DayOfWeek == DayOfWeek.Sunday
+                            ? 7
+                            : (int)DateTime.Today.DayOfWeek;
+
+                        // 优先找 TimeRule.WeekDay == 今天 的 ClassPlan
+                        foreach (var kvp in archive.ClassPlans)
+                        {
+                            if (kvp.Value.TimeRule != null && kvp.Value.TimeRule.WeekDay == todayWeekDay)
+                            {
+                                overlayCp = kvp.Value;
+                                sourceClassPlanId = kvp.Key;
+                                break;
+                            }
+                        }
+
+                        // 如果没找到今天的，取档案中第一个非空 ClassPlan
+                        if (overlayCp == null)
+                        {
+                            var first = archive.ClassPlans.FirstOrDefault(k => k.Value != null);
+                            overlayCp = first.Value;
+                            sourceClassPlanId = first.Key;
+                        }
+
+                        // 同步档案中的 Subjects 和 TimeLayouts 到当前 Profile
+                        // （班主任端可能同时修改了科目/时间表，overlay ClassPlan 依赖这些引用）
+                        // 这些 ObservableDictionary 的修改会触发 CollectionChanged → UI 刷新，必须在 UI 线程执行
+                        if (archive.TimeLayouts != null)
+                        {
+                            var timeLayoutsToSync = archive.TimeLayouts;
+                            var timeLayoutsCount = timeLayoutsToSync.Count;
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                foreach (var t in timeLayoutsToSync)
+                                {
+                                    profile.TimeLayouts[t.Key] = t.Value;
+                                }
+                            });
+                            Logger.LogInformation("已同步临时课表档案中的 {Count} 个时间表", timeLayoutsCount);
+                        }
+                        if (archive.Subjects != null)
+                        {
+                            var subjectsToSync = archive.Subjects;
+                            var subjectsCount = subjectsToSync.Count;
+                            await Dispatcher.UIThread.InvokeAsync(() =>
+                            {
+                                foreach (var s in subjectsToSync)
+                                {
+                                    profile.Subjects[s.Key] = s.Value;
+                                }
+                            });
+                            Logger.LogInformation("已同步临时课表档案中的 {Count} 个科目", subjectsCount);
+                        }
+                    }
+                }
+            }
+
+            if (overlayCp == null)
+            {
+                Logger.LogWarning("集控临时调课课表载荷无效或未找到可用的 ClassPlan，跳过应用");
+                AddLog("拉取临时课表", $"版本 {Versions.TempClassPlanVersion}", false, "未找到可用的 ClassPlan");
+                return false;
+            }
+
+            AddLog("拉取临时课表", $"版本 {Versions.TempClassPlanVersion}", true);
+
             var today = DateTime.Today;
 
             // 标记为临时层课表
             overlayCp.IsOverlay = true;
             if (overlayCp.OverlaySourceId == null)
             {
-                overlayCp.OverlaySourceId = payload.SourceClassPlanId;
+                overlayCp.OverlaySourceId = sourceClassPlanId;
             }
             overlayCp.OverlaySetupTime = today;
 
             // 生成新的 GUID 作为临时层课表 ID（若未提供）
             var overlayId = Guid.NewGuid();
-            if (profile.ClassPlans.ContainsKey(overlayId))
+            // 生成一个不与现有 ClassPlans 冲突的 overlayId（读取 ClassPlans.Keys 在后台线程是安全的，不触发 CollectionChanged）
+            while (profile.ClassPlans.ContainsKey(overlayId))
             {
                 overlayId = Guid.NewGuid();
             }
 
-            // 清理已有的临时层课表（避免叠加）
-            if (profile.OverlayClassPlanId.HasValue &&
-                profile.ClassPlans.ContainsKey(profile.OverlayClassPlanId.Value))
+            // 清理已有的临时层课表（避免叠加）并注入新的临时层课表。
+            // 这些操作修改 ObservableDictionary/StyledProperty，会触发 CollectionChanged → UI 刷新，
+            // 必须在 UI 线程执行，否则会抛出 "Call from invalid thread" 异常。
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var existingOverlay = profile.ClassPlans[profile.OverlayClassPlanId.Value];
-                if (existingOverlay.IsOverlay)
+                // 清理已有的临时层课表（避免叠加）
+                if (profile.OverlayClassPlanId.HasValue &&
+                    profile.ClassPlans.ContainsKey(profile.OverlayClassPlanId.Value))
                 {
-                    profile.ClassPlans.Remove(profile.OverlayClassPlanId.Value);
-                    Logger.LogInformation("已清理旧的临时层课表：{}", profile.OverlayClassPlanId.Value);
+                    var existingOverlay = profile.ClassPlans[profile.OverlayClassPlanId.Value];
+                    if (existingOverlay.IsOverlay)
+                    {
+                        profile.ClassPlans.Remove(profile.OverlayClassPlanId.Value);
+                        Logger.LogInformation("已清理旧的临时层课表：{}", profile.OverlayClassPlanId.Value);
+                    }
                 }
-            }
 
-            // 注入新的临时层课表
-            profile.ClassPlans[overlayId] = overlayCp;
-            profile.IsOverlayClassPlanEnabled = true;
-            profile.OverlayClassPlanId = overlayId;
-            profile.OrderedSchedules[today] = new OrderedSchedule
-            {
-                ClassPlanId = overlayId
-            };
+                // 注入新的临时层课表
+                profile.ClassPlans[overlayId] = overlayCp;
+                profile.IsOverlayClassPlanEnabled = true;
+                profile.OverlayClassPlanId = overlayId;
+                profile.OrderedSchedules[today] = new OrderedSchedule
+                {
+                    ClassPlanId = overlayId
+                };
+            });
 
             Logger.LogInformation("已应用集控临时调课课表到临时层：{OverlayId}（源课表：{SourceId}）",
                 overlayId, overlayCp.OverlaySourceId);
+            AddLog("应用临时课表", $"源课表: {overlayCp.OverlaySourceId}", true);
+            return true;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "应用集控临时调课课表失败");
+            AddLog("应用临时课表", "", false, ex.Message);
+            return false;
         }
+    }
+
+    /// <summary>
+    /// 清除当前档案中的临时层课表（Overlay），用于班主任端"恢复原课表"后同步清除客户端 overlay。
+    /// <para>
+    /// <see cref="ApplyTempClassPlanAsync"/> 在设置 overlay 时会覆盖 <c>OrderedSchedules[today]</c> 指向 overlayId，
+    /// 因此清除 overlay 后必须恢复为指向原来的非 overlay 课表，否则客户端将无课表显示。
+    /// 恢复策略：优先使用 overlay 的 <see cref="ClassPlan.OverlaySourceId"/>；若不可用，则根据今天星期几
+    /// （<see cref="TimeRule.WeekDay"/>）在 <c>profile.ClassPlans</c> 中查找匹配的非 overlay ClassPlan。
+    /// </para>
+    /// </summary>
+    private async Task ClearTempClassPlanOverlayAsync()
+    {
+        try
+        {
+            var profileService = IAppHost.TryGetService<IProfileService>();
+            if (profileService == null) return;
+            var profile = profileService.Profile;
+
+            var oldOverlayId = profile.OverlayClassPlanId;
+            var today = DateTime.Today;
+
+            // 修改 ObservableDictionary/StyledProperty 会触发 CollectionChanged → UI 刷新，
+            // 必须在 UI 线程执行，否则会抛出 "Call from invalid thread" 异常。
+            // 恢复 OrderedSchedules 需要查找 profile.ClassPlans，一并放到 UI 线程里执行以确保安全。
+            Guid? restoreClassPlanId = null;
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                // 在删除 overlay 之前，先尝试确定要恢复的原课表 ID。
+                // 优先使用 overlay 的 OverlaySourceId（如果它在 profile.ClassPlans 中存在且非 overlay）；
+                // 否则根据今天的 WeekDay 在 profile.ClassPlans 中查找匹配的非 overlay ClassPlan。
+                if (oldOverlayId.HasValue &&
+                    profile.ClassPlans.TryGetValue(oldOverlayId.Value, out var overlayCpToRemove))
+                {
+                    if (overlayCpToRemove.OverlaySourceId.HasValue &&
+                        profile.ClassPlans.TryGetValue(overlayCpToRemove.OverlaySourceId.Value, out var sourceCp) &&
+                        !sourceCp.IsOverlay)
+                    {
+                        restoreClassPlanId = overlayCpToRemove.OverlaySourceId;
+                    }
+                }
+
+                if (restoreClassPlanId == null)
+                {
+                    var todayWeekDay = today.DayOfWeek == DayOfWeek.Sunday
+                        ? 7
+                        : (int)today.DayOfWeek;
+                    foreach (var kvp in profile.ClassPlans)
+                    {
+                        if (!kvp.Value.IsOverlay &&
+                            kvp.Value.TimeRule != null &&
+                            kvp.Value.TimeRule.WeekDay == todayWeekDay)
+                        {
+                            restoreClassPlanId = kvp.Key;
+                            break;
+                        }
+                    }
+                }
+
+                // 判断今天的 OrderedSchedule 是否被 overlay 覆盖（只有被覆盖时才需要恢复）。
+                var hadOverlayToday = oldOverlayId.HasValue &&
+                    profile.OrderedSchedules.ContainsKey(today) &&
+                    profile.OrderedSchedules[today].ClassPlanId == oldOverlayId.Value;
+
+                // 清除 overlay 课表
+                if (oldOverlayId.HasValue &&
+                    profile.ClassPlans.ContainsKey(oldOverlayId.Value))
+                {
+                    var existingOverlay = profile.ClassPlans[oldOverlayId.Value];
+                    if (existingOverlay.IsOverlay)
+                    {
+                        profile.ClassPlans.Remove(oldOverlayId.Value);
+                        Logger.LogInformation("已清除临时层课表：{}", oldOverlayId.Value);
+                    }
+                }
+                profile.IsOverlayClassPlanEnabled = false;
+                profile.OverlayClassPlanId = null;
+
+                // 恢复今天的 OrderedSchedule 指向原课表（而非保留指向已删除的 overlay 或直接删除）。
+                if (hadOverlayToday)
+                {
+                    if (restoreClassPlanId.HasValue)
+                    {
+                        profile.OrderedSchedules[today] = new OrderedSchedule
+                        {
+                            ClassPlanId = restoreClassPlanId.Value
+                        };
+                        Logger.LogInformation("已恢复今天的 OrderedSchedule 指向原课表：{RestoreId}", restoreClassPlanId.Value);
+                    }
+                    else
+                    {
+                        // 找不到可恢复的原课表，移除今天的 OrderedSchedule 以避免指向已删除的 overlay
+                        profile.OrderedSchedules.Remove(today);
+                        Logger.LogWarning("未找到可恢复的原课表，已移除今天的 OrderedSchedule");
+                    }
+                }
+            });
+
+            // 删除本地缓存文件（文件 IO 不需要在 UI 线程执行）
+            if (File.Exists(ManagementTempClassPlanPath))
+            {
+                File.Delete(ManagementTempClassPlanPath);
+            }
+
+            AddLog("清除临时课表", $"overlay: {oldOverlayId}, 恢复: {restoreClassPlanId}", true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "清除临时层课表失败");
+            AddLog("清除临时课表", "", false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 向 <see cref="_managementLogs"/> 追加一条操作日志，并裁剪到 <see cref="MaxLogEntries"/> 条以内。
+    /// </summary>
+    private void AddLog(string action, string detail, bool success, string? error = null)
+    {
+        _managementLogs.Enqueue(new ManagementLogEntry
+        {
+            Timestamp = DateTime.Now,
+            Action = action,
+            Detail = detail,
+            Success = success,
+            ErrorMessage = error
+        });
+        while (_managementLogs.Count > MaxLogEntries)
+        {
+            _managementLogs.TryDequeue(out _);
+        }
+    }
+
+    /// <summary>
+    /// 上报客户端当前状态（当前课程/课间、时间段、剩余时间）到集控后端。
+    /// <para>
+    /// 由定时刷新任务每 5 秒调用一次。失败时仅记录警告，不影响集控主流程。
+    /// </para>
+    /// </summary>
+    private async Task ReportDeviceStatusAsync()
+    {
+        try
+        {
+            if (!IsManagementEnabled) return;
+
+            var profileService = IAppHost.TryGetService<IProfileService>();
+            if (profileService == null) return;
+
+            var profile = profileService.Profile;
+            var now = DateTime.Now;
+
+            // 获取当前课程状态
+            var currentLesson = GetCurrentLessonInfo(profile, now);
+
+            var status = new
+            {
+                cuid = Persist.ClientUniqueId.ToString(),
+                currentActivity = currentLesson?.ActivityName ?? "空闲",
+                activityType = currentLesson?.ActivityType ?? "idle", // "class"=上课, "break"=课间, "idle"=空闲
+                subjectName = currentLesson?.SubjectName ?? "",
+                startTime = currentLesson?.StartTime?.ToString("O"),
+                endTime = currentLesson?.EndTime?.ToString("O"),
+                remainingSeconds = currentLesson?.RemainingSeconds ?? 0,
+                currentTime = now.ToString("O"),
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(status, JsonHelperOptions);
+            var baseUrl = GetManagementBaseUrl();
+            if (string.IsNullOrEmpty(baseUrl))
+            {
+                return;
+            }
+
+            var url = $"{baseUrl}/api/teacher/device-status/{Persist.ClientUniqueId}";
+            using var httpClient = new HttpClient();
+            using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            var response = await httpClient.PutAsync(url, content);
+            response.EnsureSuccessStatusCode();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "上报设备状态失败");
+        }
+    }
+
+    /// <summary>
+    /// 从 Profile 中根据当前时间计算正在进行的课程或课间状态。
+    /// <para>
+    /// 课表选取优先级：临时层课表（overlay）→ 今天的 OrderedSchedule → 按 TimeRule.WeekDay 匹配今天。
+    /// 时间段判断：遍历 TimeLayout.Layouts，找到当前时间落在 [StartTime, EndTime) 内的 item。
+    /// </para>
+    /// </summary>
+    /// <returns>当前课程/课间信息；不在任何时间段时返回 null（表示空闲）。</returns>
+    private CurrentLessonInfo? GetCurrentLessonInfo(Profile profile, DateTime now)
+    {
+        // 1. 确定当前激活的 ClassPlan
+        ClassPlan? activePlan = null;
+
+        // 优先使用临时层课表（overlay）
+        if (profile.IsOverlayClassPlanEnabled &&
+            profile.OverlayClassPlanId.HasValue &&
+            profile.ClassPlans.TryGetValue(profile.OverlayClassPlanId.Value, out var overlayPlan))
+        {
+            activePlan = overlayPlan;
+        }
+
+        // 其次查找今天的 OrderedSchedule
+        if (activePlan == null &&
+            profile.OrderedSchedules.TryGetValue(now.Date, out var ordered) &&
+            profile.ClassPlans.TryGetValue(ordered.ClassPlanId, out var orderedPlan))
+        {
+            activePlan = orderedPlan;
+        }
+
+        // 最后按 TimeRule.WeekDay 匹配今天（1=周一，7=周日）
+        if (activePlan == null)
+        {
+            var todayWeekDay = now.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)now.DayOfWeek;
+            foreach (var kvp in profile.ClassPlans)
+            {
+                if (kvp.Value.TimeRule != null && kvp.Value.TimeRule.WeekDay == todayWeekDay)
+                {
+                    activePlan = kvp.Value;
+                    break;
+                }
+            }
+        }
+
+        if (activePlan == null) return null;
+
+        var timeLayout = activePlan.TimeLayout;
+        if (timeLayout == null) return null;
+
+        var nowTimeOfDay = now.TimeOfDay;
+
+        // 2. 遍历 Layouts 找到当前时间段
+        TimeLayoutItem? currentItem = null;
+        foreach (var item in timeLayout.Layouts)
+        {
+            if (nowTimeOfDay >= item.StartTime && nowTimeOfDay < item.EndTime)
+            {
+                currentItem = item;
+                break;
+            }
+        }
+
+        if (currentItem == null)
+        {
+            // 不在任何时间段内，返回空闲
+            return null;
+        }
+
+        var today = now.Date;
+        var startTime = today + currentItem.StartTime;
+        var endTime = today + currentItem.EndTime;
+        var remainingSeconds = (int)(endTime - now).TotalSeconds;
+
+        // 3. 根据时间段类型返回相应信息
+        if (currentItem.TimeType == 0)
+        {
+            // 上课：从 ClassPlan.Classes 中找到对应的 ClassInfo，再查 Subject.Name
+            var subjectName = GetSubjectNameForTimeItem(profile, activePlan, timeLayout, currentItem);
+            return new CurrentLessonInfo
+            {
+                ActivityName = string.IsNullOrEmpty(subjectName) ? "课程" : subjectName,
+                ActivityType = "class",
+                SubjectName = subjectName,
+                StartTime = startTime,
+                EndTime = endTime,
+                RemainingSeconds = remainingSeconds
+            };
+        }
+
+        if (currentItem.TimeType == 1)
+        {
+            // 课间：找下节课的科目名
+            var nextClassItem = timeLayout.Layouts
+                .Where(x => x.TimeType == 0 && x.StartTime >= currentItem.EndTime)
+                .OrderBy(x => x.StartTime)
+                .FirstOrDefault();
+
+            var nextSubjectName = nextClassItem != null
+                ? GetSubjectNameForTimeItem(profile, activePlan, timeLayout, nextClassItem)
+                : "";
+
+            return new CurrentLessonInfo
+            {
+                ActivityName = "课间",
+                ActivityType = "break",
+                SubjectName = nextSubjectName,
+                StartTime = startTime,
+                EndTime = endTime,
+                RemainingSeconds = remainingSeconds
+            };
+        }
+
+        // 其他类型（分割线=2、行动=3）视为空闲
+        return null;
+    }
+
+    /// <summary>
+    /// 根据 TimeLayoutItem 在 ClassPlan.Classes 中的索引查找对应的科目名称。
+    /// </summary>
+    private static string GetSubjectNameForTimeItem(Profile profile, ClassPlan classPlan, TimeLayout timeLayout, TimeLayoutItem timeItem)
+    {
+        var validItems = timeLayout.Layouts.Where(x => x.TimeType == 0).ToList();
+        var classIndex = validItems.IndexOf(timeItem);
+        if (classIndex < 0 || classIndex >= classPlan.Classes.Count) return "";
+        var classInfo = classPlan.Classes[classIndex];
+        return profile.Subjects.TryGetValue(classInfo.SubjectId, out var subject) ? subject.Name : "";
+    }
+
+    /// <summary>
+    /// 当前课程/课间状态信息（用于设备状态上报）。
+    /// </summary>
+    private record CurrentLessonInfo
+    {
+        /// <summary>活动名称（课程名/"课间"/"空闲"）。</summary>
+        public string ActivityName { get; init; } = "";
+        /// <summary>活动类型："class"=上课, "break"=课间, "idle"=空闲。</summary>
+        public string ActivityType { get; init; } = "idle";
+        /// <summary>科目名称（课间时为下节课的科目名）。</summary>
+        public string SubjectName { get; init; } = "";
+        /// <summary>时间段开始时间（本地时间）。</summary>
+        public DateTime? StartTime { get; init; }
+        /// <summary>时间段结束时间（本地时间）。</summary>
+        public DateTime? EndTime { get; init; }
+        /// <summary>时间段剩余秒数。</summary>
+        public int? RemainingSeconds { get; init; }
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions JsonHelperOptions = new(System.Text.Json.JsonSerializerDefaults.Web);
 
     /// <summary>
-    /// 集控下发的临时调课课表载荷。
+    /// 集控下发的临时调课课表载荷（旧包装格式）。
     /// </summary>
     private class TempClassPlanPayload
     {
@@ -653,6 +1136,35 @@ public class ManagementService : ObservableRecipient, IManagementService
         /// 启用日期（可选，默认为今天）。
         /// </summary>
         public DateTime? EnableDate { get; set; }
+    }
+
+    /// <summary>
+    /// 班主任端 saveTemp 保存的整个课表档案载荷（新格式）。
+    /// <para>
+    /// 班主任端 ClassPlanEdit.vue 的 saveTemp 直接将 editData（整个课表档案）保存为
+    /// tempclassplan content，顶层字段为 ClassPlans/Subjects/TimeLayouts 等字典，
+    /// 而非旧格式的单个 ClassPlan 包装。客户端需从中提取"今天"对应的 ClassPlan 作为 overlay。
+    /// </para>
+    /// </summary>
+    private class TempClassPlanArchivePayload
+    {
+        /// <summary>课表字典，键为 GUID。</summary>
+        public Dictionary<Guid, ClassPlan>? ClassPlans { get; set; }
+
+        /// <summary>科目字典，键为 GUID。</summary>
+        public Dictionary<Guid, Subject>? Subjects { get; set; }
+
+        /// <summary>时间表字典，键为 GUID。</summary>
+        public Dictionary<Guid, TimeLayout>? TimeLayouts { get; set; }
+
+        /// <summary>课表组字典，键为 GUID。</summary>
+        public Dictionary<Guid, ClassPlanGroup>? ClassPlanGroups { get; set; }
+
+        /// <summary>当前选中的课表组 ID。</summary>
+        public Guid? SelectedClassPlanGroupId { get; set; }
+
+        /// <summary>档案名称。</summary>
+        public string? Name { get; set; }
     }
 
     public void SaveSettings()

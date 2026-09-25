@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -8,6 +9,7 @@ using System.Windows;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Threading;
 using ClassPixelPro.Controls;
 using ClassPixelPro.Core;
 using ClassPixelPro.Core.Abstractions.Controls;
@@ -37,6 +39,13 @@ public partial class ManagementSettingsPage : SettingsPageBase
 
     private CancellationTokenSource? _bindingPollCts;
 
+    /// <summary>
+    /// 用于定时从 <see cref="IManagementService.ManagementLogs"/> 同步日志到 UI 的定时器。
+    /// <see cref="IManagementService.ManagementLogs"/> 返回的是快照副本，不会主动通知变化，
+    /// 因此需要定时拉取以刷新绑定。
+    /// </summary>
+    private DispatcherTimer? _logRefreshTimer;
+
     public ManagementSettingsPage(IManagementService managementService)
     {
         ManagementService = managementService;
@@ -62,6 +71,51 @@ public partial class ManagementSettingsPage : SettingsPageBase
 
         // 初始化时查询一次绑定状态
         _ = CheckBindingStatusAsync();
+
+        // 启动日志刷新定时器：每 2 秒从 ManagementService.ManagementLogs 同步到 ViewModel
+        RefreshManagementLogs();
+        _logRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _logRefreshTimer.Tick += LogRefreshTimer_OnTick;
+        _logRefreshTimer.Start();
+    }
+
+    private void ManagementSettingsPage_OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _logRefreshTimer?.Stop();
+        _logRefreshTimer = null;
+        StopPollingBindingStatus();
+    }
+
+    private void LogRefreshTimer_OnTick(object? sender, EventArgs e)
+    {
+        RefreshManagementLogs();
+    }
+
+    /// <summary>
+    /// 将 <see cref="IManagementService.ManagementLogs"/> 的最新快照同步到
+    /// <see cref="ManagementSettingsViewModel.ManagementLogs"/>，以驱动 UI 刷新。
+    /// 使用逐项比较以避免无谓的清空+重建造成的闪烁。
+    /// </summary>
+    private void RefreshManagementLogs()
+    {
+        var latest = ManagementService.ManagementLogs;
+        var current = ViewModel.ManagementLogs;
+
+        // 快速路径：数量相同且首末元素一致时假定无变化
+        if (current.Count == latest.Count &&
+            (current.Count == 0 ||
+             (ReferenceEquals(current[0], latest[0]) && ReferenceEquals(current[^1], latest[^1]))))
+        {
+            return;
+        }
+
+        // 数量不同或边界不同，整体替换
+        current.Clear();
+        // 日志按时间倒序显示（最新在最上）
+        for (var i = latest.Count - 1; i >= 0; i--)
+        {
+            current.Add(latest[i]);
+        }
     }
 
     private async void ButtonCopyCuid_OnClick(object sender, RoutedEventArgs e)
