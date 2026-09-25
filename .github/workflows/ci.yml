@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build_app:
+    name: Build_App_${{ matrix.build_type }}_win-${{ matrix.arch }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [full, selfContained]
+        arch: [x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Resolve version from git tag
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = git describe --tags --abbrev=0 2>$null
+          if (-not $tag -or $tag -notmatch '^\d+(\.\d+){3}$') { $tag = '0.0.0.0' }
+          "version=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "AppVersion = $tag"
+
+      - name: Build App (PublishApp)
+        shell: pwsh
+        env:
+          osName: windows
+          arch: ${{ matrix.arch }}
+          buildType: ${{ matrix.build_type }}
+          package: folder
+          buildName: appBase
+          appVersion: ${{ steps.ver.outputs.version }}
+        run: pwsh -ep bypass ./build.ps1 PublishApp
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClassPixelPro_${{ steps.ver.outputs.version }}_win-${{ matrix.arch }}-${{ matrix.build_type }}
+          path: ./out/out_appBase_windows_${{ matrix.arch }}_${{ matrix.build_type }}_folder.zip
+          if-no-files-found: error
+
+  build_launcher:
+    name: Build_Launcher_win-${{ matrix.arch }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Build Launcher (PublishLauncher, native AOT)
+        shell: pwsh
+        env:
+          osName: windows
+          arch: ${{ matrix.arch }}
+          buildType: aot
+          package: singleFile
+          buildName: launcher
+        run: pwsh -ep bypass ./build.ps1 PublishLauncher
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClassPixelPro_Launcher_win-${{ matrix.arch }}
+          path: ./out/out_launcher_windows_${{ matrix.arch }}_aot_singleFile.zip
+          if-no-files-found: error

@@ -427,10 +427,21 @@ public partial class ManagementSettingsPage : SettingsPageBase
                 var cpNew = await connection.GetJsonAsync<Profile>(manifest.ClassPlanSource.Value!);
                 if (profile != null)
                 {
+                    // 用 clear + add 代替替换整个 ObservableDictionary。
+                    // 直接赋值会丢失 ProfileService.LoadProfileAsync 中注册的审计 CollectionChanged 处理器，
+                    // 且不触发 CollectionChanged 事件，导致绑定到集合项的 UI 无法实时刷新。
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        profile.ClassPlans = ConfigureFileHelper.CopyObject(cpNew.ClassPlans);
-                        profile.ClassPlanGroups = ConfigureFileHelper.CopyObject(cpNew.ClassPlanGroups);
+                        profile.ClassPlans.Clear();
+                        foreach (var kvp in cpNew.ClassPlans)
+                        {
+                            profile.ClassPlans.Add(kvp.Key, kvp.Value);
+                        }
+                        profile.ClassPlanGroups.Clear();
+                        foreach (var kvp in cpNew.ClassPlanGroups)
+                        {
+                            profile.ClassPlanGroups.Add(kvp.Key, kvp.Value);
+                        }
                     });
                 }
                 ManagementService.Versions.ClassPlanVersion = manifest.ClassPlanSource.Version;
@@ -444,7 +455,11 @@ public partial class ManagementSettingsPage : SettingsPageBase
                 {
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        profile.TimeLayouts = ConfigureFileHelper.CopyObject(tlNew.TimeLayouts);
+                        profile.TimeLayouts.Clear();
+                        foreach (var kvp in tlNew.TimeLayouts)
+                        {
+                            profile.TimeLayouts.Add(kvp.Key, kvp.Value);
+                        }
                     });
                 }
                 ManagementService.Versions.TimeLayoutVersion = manifest.TimeLayoutSource.Version;
@@ -458,13 +473,18 @@ public partial class ManagementSettingsPage : SettingsPageBase
                 {
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
-                        profile.Subjects = ConfigureFileHelper.CopyObject(subjectNew.Subjects);
+                        profile.Subjects.Clear();
+                        foreach (var kvp in subjectNew.Subjects)
+                        {
+                            profile.Subjects.Add(kvp.Key, kvp.Value);
+                        }
                     });
                 }
                 ManagementService.Versions.SubjectsVersion = manifest.SubjectsSource.Version;
             }
 
-            // 保存档案到本地（仅在修改了课表/时间表/科目时）
+            // 保存档案到本地（仅在修改了课表/时间表/科目时）。
+            // 集控模式下 CurrentProfilePath 即为 "_management-profile.json"（见 ProfileService.LoadProfileAsync）。
             if (profileService != null && (options.ClassPlan || options.TimeLayout || options.Subjects))
             {
                 profileService.SaveProfile("_management-profile.json");
@@ -493,7 +513,7 @@ public partial class ManagementSettingsPage : SettingsPageBase
                 await connection.SaveJsonAsync<object>(
                     manifest.ComponentSchemeSource.Value.Value!,
                     Services.Management.ManagementService.ManagementComponentSchemePath);
-                var componentsService = IAppHost.TryGetService<Services.ComponentsService>();
+                var componentsService = IAppHost.TryGetService<IComponentsService>();
                 if (componentsService != null)
                 {
                     var scheme = ConfigureFileHelper.LoadConfig<ComponentProfile>(

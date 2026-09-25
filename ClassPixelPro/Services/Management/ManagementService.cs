@@ -422,7 +422,7 @@ public class ManagementService : ObservableRecipient, IManagementService
                 // 应用组件方案
                 try
                 {
-                    var componentsService = IAppHost.GetService<ComponentsService>();
+                    var componentsService = IAppHost.GetService<IComponentsService>();
                     // 读取保存的组件方案配置（ComponentProfile JSON）
                     var scheme = LoadConfig<ComponentProfile>(ManagementComponentSchemePath);
                     // 将集控组件方案写入组件配置目录，使用固定名称 "Management"，
@@ -976,6 +976,9 @@ public class ManagementService : ObservableRecipient, IManagementService
             // 获取当前课程状态
             var currentLesson = GetCurrentLessonInfo(profile, now);
 
+            // 客户端时间偏移（秒）：每5秒随设备状态上报，确保班主任端能及时看到最新值
+            // （ReportCurrentProfileAsync 仅在 _hasReported 为 false 时上报一次，无法反映后续修改）
+            var settingsServiceForOffset = IAppHost.TryGetService<SettingsService>();
             var status = new
             {
                 cuid = Persist.ClientUniqueId.ToString(),
@@ -986,7 +989,8 @@ public class ManagementService : ObservableRecipient, IManagementService
                 endTime = currentLesson?.EndTime?.ToString("O"),
                 remainingSeconds = currentLesson?.RemainingSeconds ?? 0,
                 currentTime = now.ToString("O"),
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                timeOffsetSeconds = settingsServiceForOffset?.Settings.TimeOffsetSeconds ?? 0
             };
 
             var json = System.Text.Json.JsonSerializer.Serialize(status, JsonHelperOptions);

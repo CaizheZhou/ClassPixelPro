@@ -867,7 +867,14 @@ public partial class SettingsWindowNew : MyWindow, INavigationPageFactory
         
         foreach (var i in ViewModel.FlattenNavigationItemsCache.Where(x => !Equals(x.Tag, info)))
         {
-            i.IsSelected = false;
+            try
+            {
+                i.IsSelected = false;
+            }
+            catch
+            {
+                // 忽略 FluentAvalonia NavigationView 内部的 NullReferenceException
+            }
         }
     }
 
