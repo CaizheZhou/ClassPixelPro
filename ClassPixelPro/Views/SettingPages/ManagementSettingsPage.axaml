@@ -43,7 +43,7 @@
                 <controls1:SettingsExpanderItem Command="{x:Static ci:UriNavigationCommands.UriNavigationCommand}"
                                                 IsClickEnabled="True"
                                                 ActionIconSource="{ci:FluentIconSource &#xEC2E;}"
-                                                CommandParameter="https://class.imzcz.cn/docs/management">
+                                                CommandParameter="https://class.imzcz.cn/#/docs/management">
                     <Grid>
                         <TextBlock Text="了解更多" />
                     </Grid>
@@ -136,6 +136,18 @@
                         </TextBlock>
                         <Button Content="解绑" Click="ButtonUnbindTeacher_OnClick"
                                 HorizontalAlignment="Left" Padding="12 4" />
+
+                        <!-- 班主任控制台二维码：教师扫码进入教师端 -->
+                        <StackPanel Spacing="6" HorizontalAlignment="Center" Margin="0 8 0 0">
+                            <TextBlock Text="扫码进入教师控制台" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" />
+                            <Image Source="/Assets/TeacherConsoleQrCode.png"
+                                   Width="220" Height="220" Stretch="Uniform"
+                                   HorizontalAlignment="Center" />
+                            <TextBlock Text="班主任可用微信扫码进入教师端管理界面"
+                                       TextWrapping="Wrap" TextAlignment="Center"
+                                       HorizontalAlignment="Center" MaxWidth="280" Opacity="0.7" />
+                        </StackPanel>
                     </StackPanel>
                 </controls1:SettingsExpanderItem>
 

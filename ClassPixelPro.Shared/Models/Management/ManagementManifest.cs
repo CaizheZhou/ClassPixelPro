@@ -68,6 +68,11 @@ public class ManagementManifest
     public ReVersionString? TempClassPlanSource { get; set; }
 
     /// <summary>
+    /// 帮助信息源。由集控分发，客户端在"关于"页面展示技术联系人等帮助信息。
+    /// </summary>
+    public ReVersionString? HelpInfoSource { get; set; }
+
+    /// <summary>
     /// 集控服务器类型
     /// </summary>
     public ManagementServerKind ServerKind { get; set; } = ManagementServerKind.Serverless;

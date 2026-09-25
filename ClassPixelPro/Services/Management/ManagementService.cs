@@ -68,6 +68,13 @@ public class ManagementService : ObservableRecipient, IManagementService
         Path.Combine(CommonDirectories.AppConfigPath, "ManagementComponentScheme.json");
     public static readonly string ManagementTempClassPlanPath =
         Path.Combine(CommonDirectories.AppConfigPath, "ManagementTempClassPlan.json");
+    public static readonly string ManagementHelpInfoPath =
+        Path.Combine(ManagementConfigureFolderPath, "HelpInfo.json");
+
+    /// <summary>
+    /// 帮助信息公开 API 的默认 base URL。未加入集控时使用此地址拉取全局默认帮助信息。
+    /// </summary>
+    private const string DefaultHelpInfoApiBaseUrl = "https://class.imzcz.cn";
 
     public static readonly string LocalManagementPolicyPath =
         Path.Combine(LocalManagementConfigureFolderPath, "Policy.json");
@@ -94,6 +101,16 @@ public class ManagementService : ObservableRecipient, IManagementService
     {
         get => _credentialConfig;
         set => SetProperty(ref _credentialConfig, value);
+    }
+
+    private ManagementHelpInfo _helpInfo = new();
+    /// <summary>
+    /// 集控下发的帮助信息。客户端"关于"页面据此展示技术联系人等联系方式。
+    /// </summary>
+    public ManagementHelpInfo HelpInfo
+    {
+        get => _helpInfo;
+        set => SetProperty(ref _helpInfo, value);
     }
 
     public ManagementClientPersistConfig Persist { get;}
@@ -125,7 +142,15 @@ public class ManagementService : ObservableRecipient, IManagementService
 #endif
         IsManagementEnabled = Settings.IsManagementEnabled;
         if (!IsManagementEnabled)
+        {
+            LoadLocalHelpInfo();
+            // 未加入集控时，异步拉取全局默认帮助信息
+            _ = Task.Run(() => FetchHelpInfoFromApiAsync(null));
             return;
+        }
+
+        // 加载本地已保存的帮助信息（集控刷新前先展示缓存）
+        LoadLocalHelpInfo();
 
         // 连接集控服务器
         try
@@ -172,6 +197,95 @@ public class ManagementService : ObservableRecipient, IManagementService
 
         Policy.PropertyChanged += (sender, args) => SaveConfig(LocalManagementPolicyPath, Policy);
         CredentialConfig.PropertyChanged += (sender, args) => SaveConfig(LocalManagementCredentialsPath, CredentialConfig);
+    }
+
+    /// <summary>
+    /// 加载本地已保存的帮助信息（集控未启用或拉取失败时使用缓存）。
+    /// </summary>
+    private void LoadLocalHelpInfo()
+    {
+        try
+        {
+            if (File.Exists(ManagementHelpInfoPath))
+            {
+                HelpInfo = LoadConfig<ManagementHelpInfo>(ManagementHelpInfoPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "加载本地帮助信息失败");
+        }
+    }
+
+    /// <summary>
+    /// 从 /api/help 公开接口拉取帮助信息。
+    /// 带 orgId 时后端先查组织自定义，没有则回退到全局默认；不带 orgId 时直接返回全局默认。
+    /// 拉取成功后写入本地缓存文件并更新 HelpInfo 属性。
+    /// </summary>
+    /// <param name="orgId">组织 ID。为 null 时拉取全局默认。</param>
+    /// <param name="baseUrl">API base URL。为 null 时使用 <see cref="DefaultHelpInfoApiBaseUrl"/>。</param>
+    private async Task FetchHelpInfoFromApiAsync(string? orgId = null, string? baseUrl = null)
+    {
+        var apiBase = string.IsNullOrWhiteSpace(baseUrl) ? DefaultHelpInfoApiBaseUrl : baseUrl.TrimEnd('/');
+        var url = string.IsNullOrEmpty(orgId)
+            ? $"{apiBase}/api/help"
+            : $"{apiBase}/api/help?orgId={orgId}";
+        try
+        {
+            var info = await WebRequestHelper.Default.GetJson<ManagementHelpInfo>(new Uri(url), retries: 1);
+            if (info != null)
+            {
+                HelpInfo = info;
+                try
+                {
+                    SaveConfig(ManagementHelpInfoPath, info);
+                }
+                catch (Exception exSave)
+                {
+                    Logger.LogWarning(exSave, "保存帮助信息到本地失败");
+                }
+                Logger.LogInformation("已拉取帮助信息（orgId={OrgId}）", orgId ?? "default");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "拉取帮助信息失败（orgId={OrgId}）", orgId ?? "default");
+        }
+    }
+
+    /// <summary>
+    /// 从 ManifestUrlTemplate 解析出集控 API base URL。
+    /// 模板形如：https://example.com/api/mgmt/{orgId}/serverless/manifest?cuid={cuid}&amp;id={id}
+    /// </summary>
+    private string? GetManagementBaseUrl()
+    {
+        var template = Settings.ManifestUrlTemplate;
+        if (string.IsNullOrWhiteSpace(template)) return null;
+        try
+        {
+            var uri = new Uri(template);
+            var builder = new UriBuilder(uri.Scheme, uri.Host, uri.Port);
+            return builder.ToString().TrimEnd('/');
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 从 ManifestUrlTemplate 解析出组织 ID。
+    /// 模板形如：https://example.com/api/mgmt/{orgId}/serverless/manifest?...
+    /// </summary>
+    private string? GetOrgIdFromManifestTemplate()
+    {
+        var template = Settings.ManifestUrlTemplate;
+        if (string.IsNullOrWhiteSpace(template)) return null;
+        var match = System.Text.RegularExpressions.Regex.Match(
+            template,
+            @"/api/mgmt/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     public async Task<bool> SetupManagement()
@@ -315,6 +429,22 @@ public class ManagementService : ObservableRecipient, IManagementService
                     Logger.LogError(exTempClassPlan, "应用集控临时调课课表失败");
                 }
             }
+            // 拉取帮助信息
+            if (Manifest.HelpInfoSource.HasValue &&
+                Manifest.HelpInfoSource.Value.IsNewerAndNotNull(Versions.HelpInfoVersion))
+            {
+                Logger.LogInformation("拉取集控帮助信息");
+                try
+                {
+                    HelpInfo = await Connection.SaveJsonAsync<ManagementHelpInfo>(Manifest.HelpInfoSource.Value.Value!, ManagementHelpInfoPath);
+                    Versions.HelpInfoVersion = Manifest.HelpInfoSource.Value.Version;
+                    Logger.LogInformation("已拉取集控帮助信息，版本 {Version}", Versions.HelpInfoVersion);
+                }
+                catch (Exception exHelpInfo)
+                {
+                    Logger.LogError(exHelpInfo, "拉取集控帮助信息失败");
+                }
+            }
             // 保存版本号
             SaveSettings();
 
@@ -377,7 +507,7 @@ public class ManagementService : ObservableRecipient, IManagementService
     {
         try
         {
-            var profileService = IAppHost.TryGetService<ProfileService>();
+            var profileService = IAppHost.TryGetService<IProfileService>();
             if (profileService == null)
             {
                 Logger.LogWarning("ProfileService 不可用，跳过上报课表/时间表/科目");
@@ -439,7 +569,7 @@ public class ManagementService : ObservableRecipient, IManagementService
                 return;
             }
 
-            var profileService = IAppHost.TryGetService<ProfileService>();
+            var profileService = IAppHost.TryGetService<IProfileService>();
             if (profileService == null)
             {
                 Logger.LogWarning("ProfileService 不可用，无法应用集控临时调课课表");
@@ -539,7 +669,10 @@ public class ManagementService : ObservableRecipient, IManagementService
         switch (settings.ManagementServerKind)
         {
             case ManagementServerKind.Serverless:
-                mf = await WebRequestHelper.Default.GetJson<ManagementManifest>(new Uri(settings.ManifestUrlTemplate));
+                var manifestUrl = settings.ManifestUrlTemplate
+                    .Replace("{cuid}", Persist.ClientUniqueId.ToString())
+                    .Replace("{id}", settings.ClassIdentity ?? "");
+                mf = await WebRequestHelper.Default.GetJson<ManagementManifest>(new Uri(manifestUrl));
                 break;
             case ManagementServerKind.ManagementServer:
                 var connection = new ManagementServerConnection(settings, Persist.ClientUniqueId, true);

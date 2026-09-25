@@ -118,7 +118,7 @@
                                 </Style>
                             </WrapPanel.Styles>
                             <HyperlinkButton Click="ButtonPrivacy_OnClick"
-                                             CommandParameter="https://class.imzcz.cn/docs">
+                                             CommandParameter="https://class.imzcz.cn/#/docs">
                                 <TextBlock Text="隐私政策"/>
                             </HyperlinkButton>
                         </WrapPanel>
@@ -137,7 +137,7 @@
                                 </Style>
                             </WrapPanel.Styles>
                             <HyperlinkButton Click="UriNavigationCommands_OnClick"
-                                             CommandParameter="https://class.imzcz.cn/docs">
+                                             CommandParameter="https://class.imzcz.cn/#/docs">
                                 <TextBlock Text="帮助文档"/>
                             </HyperlinkButton>
                         </WrapPanel>
@@ -152,6 +152,29 @@
                     Click="ButtonDiagnosticInfo_OnClick"
                     Content="查看诊断信息"
                     IsClickEnabled="True"/>
+            </controls3:SettingsExpander>
+
+            <controls3:SettingsExpander Header="寻求帮助" IconSource="{commands:FluentIconSource &#xE11F;}"
+                                        IsExpanded="False"
+                                        IsVisible="{Binding ViewModel.ManagementService.HelpInfo.HasContent}">
+                <controls3:SettingsExpanderItem>
+                    <StackPanel Margin="0 4">
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0 0 8 0" IsVisible="{Binding ViewModel.ManagementService.HelpInfo.HasContactName}">
+                            <TextBlock Text="技术联系人：" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding ViewModel.ManagementService.HelpInfo.ContactName}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0 0 8 0" IsVisible="{Binding ViewModel.ManagementService.HelpInfo.HasContactMethod}">
+                            <TextBlock Text="联系方式：" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding ViewModel.ManagementService.HelpInfo.ContactMethod}"/>
+                            <TextBlock Text="：" />
+                            <TextBlock Text="{Binding ViewModel.ManagementService.HelpInfo.ContactId}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0 0 8 0" IsVisible="{Binding ViewModel.ManagementService.HelpInfo.HasNotes}">
+                            <TextBlock Text="说明：" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding ViewModel.ManagementService.HelpInfo.Notes}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                </controls3:SettingsExpanderItem>
             </controls3:SettingsExpander>
             
             <controls3:SettingsExpander Header="回声洞" IconSource="{commands:FluentIconSource &#xE55F;}">

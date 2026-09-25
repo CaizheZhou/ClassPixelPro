@@ -64,4 +64,9 @@ public class ManagementVersions
     /// 临时调课课表版本
     /// </summary>
     public int TempClassPlanVersion { get; set; } = 0;
+
+    /// <summary>
+    /// 帮助信息版本
+    /// </summary>
+    public int HelpInfoVersion { get; set; } = 0;
 }

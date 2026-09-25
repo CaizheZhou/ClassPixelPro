@@ -40,6 +40,11 @@ public interface IManagementService
     ManagementCredentialConfig CredentialConfig { get; internal set; }
 
     /// <summary>
+    /// 集控下发的帮助信息
+    /// </summary>
+    ManagementHelpInfo HelpInfo { get; }
+
+    /// <summary>
     /// 集控持久配置
     /// </summary>
     ManagementClientPersistConfig Persist { get; }

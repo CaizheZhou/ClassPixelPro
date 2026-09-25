@@ -66,7 +66,7 @@ public partial class CrashWindow : MyWindow
     private void ButtonFeedback_OnClick(object sender, RoutedEventArgs e)
     {
         var uri = new UriBuilder(
-            $"https://class.imzcz.cn/docs/faq");
+            $"https://class.imzcz.cn/#/docs/faq");
         uri.Query = 
             $"template=BugReport.yml&stacktrace={HttpUtility.UrlEncode(CrashInfo)}&app_version={HttpUtility.UrlEncode(App.AppVersionLong)}&os_version={HttpUtility.UrlEncode(Environment.OSVersion.Version.ToString())}";
         Process.Start(new ProcessStartInfo()
