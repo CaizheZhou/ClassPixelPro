@@ -165,13 +165,33 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
         var keyStream = AssetLoader.Open(new Uri("avares://ClassPixelPro/Assets/TrustedPublicKeys/ClassPixelPro.MetadataPublisher.asc", UriKind.RelativeOrAbsolute));
         MetadataPublisherPublicKey = new StreamReader(keyStream).ReadToEnd();
 
-        RequestHelper = new WebRequestHelper(AppBase.Current.IsDevelopmentBuild 
-                                             && !string.IsNullOrWhiteSpace(Settings.DebugPhainonRootUrlOverride) 
-                                             && Uri.TryCreate(Settings.DebugPhainonRootUrlOverride, UriKind.Absolute, out var u1)
-            ? u1
-            : new Uri(PhainonRootUrl), true);
+        RequestHelper = new WebRequestHelper(GetPhainonBaseUri(), true);
         _distributionInfo = ConfigureFileHelper.LoadConfig<DistributionInfoClient>(UpdateDistributionInfoPath);
         DistributionMetadata = ConfigureFileHelper.LoadConfig<DistributionMetadata>(UpdateDistributionMetadataPath);
+    }
+
+    /// <summary>
+    /// 计算 Phainon 服务器的 base URI，支持开发构建时通过 DebugPhainonRootUrlOverride 覆盖。
+    /// </summary>
+    private Uri GetPhainonBaseUri()
+    {
+        return AppBase.Current.IsDevelopmentBuild
+               && !string.IsNullOrWhiteSpace(Settings.DebugPhainonRootUrlOverride)
+               && Uri.TryCreate(Settings.DebugPhainonRootUrlOverride, UriKind.Absolute, out var u1)
+            ? u1
+            : new Uri(PhainonRootUrl);
+    }
+
+    /// <summary>
+    /// 从服务器获取所有版本的更新日志。
+    /// 该端点返回直接 JSON 数组（非 Phainon Result 包装），因此需要使用 non-phainon 模式的请求 helper。
+    /// </summary>
+    public async Task<List<ChangeLogEntry>> GetChangeLogsAsync()
+    {
+        // changelogs 端点返回直接 JSON 数组，不是 Result<T> 包装，需要 phainon: false
+        var nonPhainonHelper = new WebRequestHelper(GetPhainonBaseUri(), false);
+        return await nonPhainonHelper.GetJson<List<ChangeLogEntry>>(
+            new Uri("api/v1/public/distributions/changelogs", UriKind.Relative));
     }
 
     public bool IsCanceled

@@ -476,6 +476,32 @@ public class ManagementService : ObservableRecipient, IManagementService
                     Logger.LogError(exHelpInfo, "拉取集控帮助信息失败");
                 }
             }
+            // 拉取课表/时间表/科目（classplan/timelayout/subjects）
+            // 这些内容类型由 ProfileService.MergeManagementProfileAsync 负责合并到当前档案。
+            // 首次启动时在 LoadProfileAsync 中调用一次；此处为定时刷新场景：
+            // 班主任端修改课表后 version 升级，定时刷新检测到 IsNewerAndNotNull 即触发合并。
+            if (Manifest.ClassPlanSource.IsNewerAndNotNull(Versions.ClassPlanVersion) ||
+                Manifest.TimeLayoutSource.IsNewerAndNotNull(Versions.TimeLayoutVersion) ||
+                Manifest.SubjectsSource.IsNewerAndNotNull(Versions.SubjectsVersion))
+            {
+                Logger.LogInformation("检测到集控课表/时间表/科目有更新，触发档案合并");
+                try
+                {
+                    var profileService = IAppHost.TryGetService<IProfileService>();
+                    if (profileService != null)
+                    {
+                        await profileService.MergeManagementProfileAsync();
+                    }
+                    else
+                    {
+                        Logger.LogWarning("ProfileService 不可用，跳过集控课表/时间表/科目合并");
+                    }
+                }
+                catch (Exception exProfileMerge)
+                {
+                    Logger.LogError(exProfileMerge, "集控课表/时间表/科目合并失败");
+                }
+            }
             // 保存版本号
             SaveSettings();
 

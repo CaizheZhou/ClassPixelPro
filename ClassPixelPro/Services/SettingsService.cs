@@ -89,6 +89,25 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
                 await LoadManagementSettingsAsync();
             }
 
+            // 集控下发的应用设置（appsettings）优先级高于本地 Settings.json。
+            // ReloadManagementAsync 已经将集控 appsettings 下载到 ManagementAppSettingsPath，
+            // 但此处先从本地 Settings.json 加载会覆盖它。这里在集控启用时用 ManagementAppSettingsPath
+            // 覆盖本地设置，确保集控下发的应用设置生效。
+            if (ManagementService.IsManagementEnabled && File.Exists(Management.ManagementService.ManagementAppSettingsPath))
+            {
+                try
+                {
+                    var mgmtAppSettings = ConfigureFileHelper.LoadConfig<Settings>(Management.ManagementService.ManagementAppSettingsPath);
+                    Settings = mgmtAppSettings;
+                    Settings.PropertyChanged += (sender, args) => SettingsChanged(args.PropertyName!);
+                    Logger.LogInformation("已应用集控下发的应用设置（appsettings）");
+                }
+                catch (Exception exAppSettings)
+                {
+                    Logger.LogWarning(exAppSettings, "应用集控下发的应用设置失败，回退到本地设置");
+                }
+            }
+
             ISpeechService.GlobalSettings = Settings;
         }
         catch (Exception ex)

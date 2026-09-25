@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using System.Windows;
 using Avalonia.Platform;
 using ClassPixelPro.Core;
@@ -75,7 +76,15 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         }
     }
 
-    private async Task MergeManagementProfileAsync()
+    /// <summary>
+    /// 从集控拉取课表/时间表/科目并合并到当前档案。
+    /// <para>
+    /// 此方法在 <see cref="LoadProfileAsync"/> 首次加载档案时调用，
+    /// 也在集控定时刷新（<see cref="ManagementService.ReloadManagementAsync"/>）检测到
+    /// classplan/subjects/timelayout 有更新时调用，确保班主任端修改的课表能及时同步到客户端。
+    /// </para>
+    /// </summary>
+    public async Task MergeManagementProfileAsync()
     {
         var span = SentrySdk.GetSpan();
         var spanLoadMgmtProfile = span?.StartChild("profile-mgmt-pull-profile");
@@ -92,8 +101,13 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-classPlan");
                 var cpOld = LoadConfig<Profile>(ManagementClassPlanPath);
                 var cpNew = classPlan = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.ClassPlanSource.Value!);
-                MergeDictionary(Profile.ClassPlans, cpOld.ClassPlans, cpNew.ClassPlans);
-                MergeDictionary(Profile.ClassPlanGroups, cpOld.ClassPlanGroups, cpNew.ClassPlanGroups);
+                // MergeDictionary 修改 ObservableDictionary 会触发 CollectionChanged → UI 刷新，
+                // 必须在 UI 线程执行，否则在定时刷新场景会抛出 "Call from invalid thread" 异常。
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    MergeDictionary(Profile.ClassPlans, cpOld.ClassPlans, cpNew.ClassPlans);
+                    MergeDictionary(Profile.ClassPlanGroups, cpOld.ClassPlanGroups, cpNew.ClassPlanGroups);
+                });
                 spanDownload?.Finish();
             }
             if (ManagementService.Manifest.TimeLayoutSource.IsNewerAndNotNull(ManagementService.Versions.TimeLayoutVersion))
@@ -101,7 +115,10 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-timeLayout");
                 var tlOld = LoadConfig<Profile>(ManagementTimeLayoutPath);
                 var tlNew = timeLayouts = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.TimeLayoutSource.Value!);
-                MergeDictionary(Profile.TimeLayouts, tlOld.TimeLayouts, tlNew.TimeLayouts);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    MergeDictionary(Profile.TimeLayouts, tlOld.TimeLayouts, tlNew.TimeLayouts);
+                });
                 spanDownload?.Finish();
             }
             if (ManagementService.Manifest.SubjectsSource.IsNewerAndNotNull(ManagementService.Versions.SubjectsVersion))
@@ -109,7 +126,10 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-subjects");
                 var subjectOld = LoadConfig<Profile>(ManagementSubjectsPath);
                 var subjectNew = subjects = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.SubjectsSource.Value!);
-                MergeDictionary(Profile.Subjects, subjectOld.Subjects, subjectNew.Subjects);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    MergeDictionary(Profile.Subjects, subjectOld.Subjects, subjectNew.Subjects);
+                });
                 spanDownload?.Finish();
             }
 
@@ -128,10 +148,15 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         }
 
         //Profile = ConfigureFileHelper.CopyObject(Profile);
-        Profile.Subjects = CopyObject(Profile.Subjects);
-        Profile.TimeLayouts = CopyObject(Profile.TimeLayouts);
-        Profile.ClassPlans = CopyObject(Profile.ClassPlans);
-        Profile.RefreshTimeLayouts();
+        // CopyObject 赋值 ObservableDictionary 会触发 PropertyChanged → UI 刷新，
+        // 必须在 UI 线程执行，否则在定时刷新场景会抛出 "Call from invalid thread" 异常。
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            Profile.Subjects = CopyObject(Profile.Subjects);
+            Profile.TimeLayouts = CopyObject(Profile.TimeLayouts);
+            Profile.ClassPlans = CopyObject(Profile.ClassPlans);
+            Profile.RefreshTimeLayouts();
+        });
         Logger.LogTrace("成功拉取集控档案！");
         spanLoadMgmtProfile?.Finish();
     }

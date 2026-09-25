@@ -63,7 +63,7 @@
                 <ci:Field Label="时间表">
                     <ComboBox SelectedValue="{Binding TimeLayoutId}"
                               SelectedValueBinding="{Binding Key}"
-                              ItemsSource="{Binding $parent[views:ProfileSettingsWindow].ViewModel.TimeLayouts.List}"
+                              ItemsSource="{Binding $parent[views:ProfileSettingsWindow].ViewModel.TimeLayouts.List, FallbackValue={x:Null}}"
                               SelectedItem="{Binding $parent[views:ProfileSettingsWindow].ViewModel.ClassPlanInfoSelectedTimeLayoutKvp}">
                         <ComboBox.ItemTemplate>
                             <DataTemplate>
@@ -451,7 +451,7 @@
                 <ci:Field Label="时间表">
                     <ComboBox
                         HorizontalAlignment="Stretch"
-                        ItemsSource="{Binding ViewModel.TimeLayouts.List}"
+                        ItemsSource="{Binding ViewModel.TimeLayouts.List, FallbackValue={x:Null}}"
                         SelectedValueBinding="{Binding Key}"
                         SelectedValue="{Binding ViewModel.TempOverlayClassPlanTimeLayoutId}">
                         <ComboBox.ItemTemplate>
@@ -1109,7 +1109,7 @@
                             <!-- 时间表 -->
                             <ci:TutorialBarrier Grid.Row="1">
                                 <ListBox SelectionMode="Single"
-                                         ItemsSource="{Binding ViewModel.TimeLayouts.List, Mode=OneWay}"
+                                         ItemsSource="{Binding ViewModel.TimeLayouts.List, Mode=OneWay, FallbackValue={x:Null}}"
                                          SelectedValue="{Binding ViewModel.SelectedTimeLayout, Mode=TwoWay}"
                                          SelectedValueBinding="{Binding Value}">
                                     <ListBox.ItemTemplate>

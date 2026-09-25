@@ -23,7 +23,7 @@
         <TabControl Margin="-4 4 -4 0" Classes="compact" Grid.Row="1">
             <TabItem Header="课表">
                 <ListBox x:Name="ListBoxClassPlans"
-                         ItemsSource="{Binding ClassPlans.List}"
+                         ItemsSource="{Binding ClassPlans.List, FallbackValue={x:Null}}"
                          SelectionMode="Multiple, Toggle"
                          SelectionChanged="ListBoxClassPlans_OnSelectionChanged">
                     <ListBox.ItemTemplate>
@@ -36,7 +36,7 @@
             </TabItem>
             <TabItem Header="时间表">
                 <ListBox x:Name="ListBoxTimeLayouts"
-                         ItemsSource="{Binding TimeLayouts.List}"
+                         ItemsSource="{Binding TimeLayouts.List, FallbackValue={x:Null}}"
                          SelectionMode="Multiple, Toggle"
                          SelectionChanged="ListBoxTimeLayouts_OnSelectionChanged">
                     <ListBox.ItemTemplate>

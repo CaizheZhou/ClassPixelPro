@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Mime;
+using System.Text;
 using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
 using Avalonia.Platform;
@@ -9,6 +10,7 @@ using ClassPixelPro.Core.Abstractions.Controls;
 using ClassPixelPro.Core.Attributes;
 using ClassPixelPro.Core.Enums.SettingsWindow;
 using ClassPixelPro.Enums.AppUpdating;
+using ClassPixelPro.Models.AppUpdating;
 using ClassPixelPro.Services.AppUpdating;
 using ClassPixelPro.Shared;
 using ClassPixelPro.Shared.Enums;
@@ -161,12 +163,57 @@ public partial class UpdateSettingsPage : SettingsPageBase
         await ViewModel.UpdateService.CheckUpdateAsync(true);
     }
 
-    private void ButtonShowChangeLogs_OnClick(object? sender, RoutedEventArgs e)
+    private async void ButtonShowChangeLogs_OnClick(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // 从服务器获取所有版本的更新日志
+            var changelogs = await ViewModel.UpdateService.GetChangeLogsAsync();
+
+            if (changelogs.Count > 0)
+            {
+                // 合并为 Markdown 文档（每个版本一个标题 + changelog）
+                var sb = new StringBuilder();
+                foreach (var entry in changelogs)
+                {
+                    var versionTitle = string.IsNullOrEmpty(entry.FriendlyVersion)
+                        ? entry.Version
+                        : entry.FriendlyVersion;
+                    sb.AppendLine($"# {versionTitle}");
+                    sb.AppendLine();
+                    if (!string.IsNullOrEmpty(entry.ChangeLog))
+                    {
+                        sb.AppendLine(entry.ChangeLog);
+                    }
+                    else
+                    {
+                        sb.AppendLine("（无更新日志）");
+                    }
+                    sb.AppendLine();
+                    sb.AppendLine("---");
+                    sb.AppendLine();
+                }
+                ViewModel.ChangeLogDocument = sb.ToString();
+            }
+            else
+            {
+                // 服务器返回空，回退到本地文件
+                LoadLocalChangeLog();
+            }
+        }
+        catch
+        {
+            // 网络请求失败，回退到本地文件
+            LoadLocalChangeLog();
+        }
+        OpenDrawer("ChangeLogDrawer");
+    }
+
+    private void LoadLocalChangeLog()
     {
         using var sr =
             new StreamReader(AssetLoader.Open(new Uri("avares://ClassPixelPro/Assets/Documents/ChangeLog.md")));
         ViewModel.ChangeLogDocument = sr.ReadToEnd();
-        OpenDrawer("ChangeLogDrawer");
     }
 
     private async void MenuItemDownloadOnly_OnClick(object? sender, RoutedEventArgs e)
