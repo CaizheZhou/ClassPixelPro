@@ -592,6 +592,8 @@ public class ManagementService : ObservableRecipient, IManagementService
             // 注意：profile.ClassPlans 是客户端实际使用的课表（集控下发 + 用户手动修改的合并结果），
             // 而不是集控全局课表。班主任端通过 /api/teacher/classplan/:cuid 拉取 per-device 记录，
             // 即可看到客户端当前实际使用的课表。
+            // 客户端时间偏移（秒），班主任端编辑课表时需要据此显示与客户端一致的时间
+            var settingsService = IAppHost.TryGetService<SettingsService>();
             var reportBody = new
             {
                 classplan = new
@@ -613,7 +615,8 @@ public class ManagementService : ObservableRecipient, IManagementService
                 {
                     Subjects = profile.Subjects,
                     Name = profile.Name,
-                }
+                },
+                timeOffsetSeconds = settingsService?.Settings.TimeOffsetSeconds ?? 0
             };
             var reportJson = System.Text.Json.JsonSerializer.Serialize(reportBody);
 
