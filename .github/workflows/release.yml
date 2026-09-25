@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: '要发布的 tag（如 2.1.2.1）'
+        description: '要发布的 tag（如 2.1.2.3）'
         required: true
         type: string
 
@@ -16,12 +16,8 @@ permissions:
 
 jobs:
   build:
-    name: Build_${{ matrix.build_type }}_win-x64
+    name: Build_and_Pack
     runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        build_type: [full, selfContained]
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
     steps:
@@ -37,43 +33,21 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Build App (PublishApp)
+      - name: Build and assemble dist package (pack.ps1)
         shell: pwsh
-        env:
-          osName: windows
-          arch: x64
-          buildType: ${{ matrix.build_type }}
-          package: folder
-          buildName: appBase
-          appVersion: ${{ env.RELEASE_TAG }}
-        run: pwsh -ep bypass ./build.ps1 PublishApp
+        run: pwsh -File ./pack.ps1 -Version $env:RELEASE_TAG -DistDir ci-dist
 
-      - name: Build Launcher (PublishLauncher, native AOT)
-        shell: pwsh
-        env:
-          osName: windows
-          arch: x64
-          buildType: aot
-          package: singleFile
-          buildName: launcher
-        run: pwsh -ep bypass ./build.ps1 PublishLauncher
-
-      - name: Rename artifacts
+      - name: Collect zip into workspace
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path ./rel -Force | Out-Null
-          $suffix = if ('${{ matrix.build_type }}' -eq 'full') { '' } else { '-sc' }
-          Copy-Item ./out/out_appBase_windows_x64_${{ matrix.build_type }}_folder.zip "./rel/ClassPixelPro_$($env:RELEASE_TAG)_win-x64$suffix.zip"
-          if (Test-Path ./out/out_launcher_windows_x64_aot_singleFile.zip) {
-            Copy-Item ./out/out_launcher_windows_x64_aot_singleFile.zip "./rel/ClassPixelPro_Launcher_$($env:RELEASE_TAG)_win-x64.zip"
-          }
-          Get-ChildItem ./rel
+          Move-Item "../ClassPixelPro_$($env:RELEASE_TAG)_windows-x64.zip" ./ -Force
+          Get-ChildItem *.zip
 
-      - name: Upload release artifacts
+      - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release_${{ matrix.build_type }}
-          path: ./rel/*.zip
+          name: release_package
+          path: ./ClassPixelPro_${{ env.RELEASE_TAG }}_windows-x64.zip
           if-no-files-found: error
 
   publish:
@@ -81,11 +55,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Download all release artifacts
+      - name: Download release artifact
         uses: actions/download-artifact@v4
         with:
           path: ./rel
-          pattern: release_*
+          pattern: release_package
           merge-multiple: true
 
       - name: Create GitHub Release
