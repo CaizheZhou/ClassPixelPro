@@ -212,6 +212,9 @@ public class Settings : ObservableRecipient, ILessonControlSettings, INotificati
     private bool _showEchoCaveWhenSettingsPageLoading = false;
     private int _settingsPagesCachePolicy = 0;
     private string _notificationSpeechCustomSmgTokenSource = "";
+    private bool _isRemoteMonitorEnabled = false;
+    private bool _isMonitorIndicatorEnabled = false;
+    private int _remoteMonitorSelectedCameraIndex = 0;
 
     private string _selectedUpdateMirrorV2 = "main";
     private string _selectedUpdateChannelV2 = "stable";
@@ -2649,6 +2652,50 @@ public class Settings : ObservableRecipient, ILessonControlSettings, INotificati
         {
             if (value == _classPlanEditModeIndex) return;
             _classPlanEditModeIndex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 是否启用远程监控功能。启用后将在后台启动 HTTP 服务器和 cloudflared 隧道，
+    /// 允许班主任通过公网远程查看摄像头、截取屏幕、传话播放。
+    /// </summary>
+    public bool IsRemoteMonitorEnabled
+    {
+        get => _isRemoteMonitorEnabled;
+        set
+        {
+            if (value == _isRemoteMonitorEnabled) return;
+            _isRemoteMonitorEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 是否在主界面左上角显示监控指示器（摄像头图标 + 闪烁红点）。
+    /// 仅在 <see cref="IsRemoteMonitorEnabled"/> 为 true 且监控服务正在运行时可见。默认关闭。
+    /// </summary>
+    public bool IsMonitorIndicatorEnabled
+    {
+        get => _isMonitorIndicatorEnabled;
+        set
+        {
+            if (value == _isMonitorIndicatorEnabled) return;
+            _isMonitorIndicatorEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 远程监控选中的摄像头索引（对应 <see cref="ClassPixelPro.Services.RemoteMonitor.CameraInfo.Index"/>）。
+    /// </summary>
+    public int RemoteMonitorSelectedCameraIndex
+    {
+        get => _remoteMonitorSelectedCameraIndex;
+        set
+        {
+            if (value == _remoteMonitorSelectedCameraIndex) return;
+            _remoteMonitorSelectedCameraIndex = value;
             OnPropertyChanged();
         }
     }

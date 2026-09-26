@@ -46,9 +46,11 @@ using ClassPixelPro.Shared.Interfaces;
 using ClassPixelPro.Shared.Models.Notification;
 using ClassPixelPro.Services;
 using ClassPixelPro.Shared;
+using ClassPixelPro.Shared.Interfaces;
 using ClassPixelPro.Shared.Interfaces.Controls;
 using ClassPixelPro.ViewModels;
 using ClassPixelPro.Views;
+using ClassPixelPro.Views.Controls;
 using CommunityToolkit.Mvvm.Input;
 using FluentAvalonia.UI.Controls;
 using Microsoft.Extensions.Logging;
@@ -153,6 +155,16 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
     public IXamlThemeService XamlThemeService { get; }
     private ITutorialService TutorialService { get; }
 
+    /// <summary>
+    /// 远程监控指示器窗口。根据监控启用状态显示/隐藏。
+    /// </summary>
+    private MonitorIndicator? MonitorIndicator { get; set; }
+
+    /// <summary>
+    /// 远程监控主服务。用于判断监控是否正在运行以控制指示器可见性。
+    /// </summary>
+    private Services.RemoteMonitor.RemoteMonitorService? RemoteMonitorService { get; set; }
+
     public event EventHandler<MousePosChangedEventArgs>? MousePosChanged;
 
     public event EventHandler<RawInputEventArgs>? RawInputEvent;
@@ -209,7 +221,9 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
         IManagementService managementService,
         TopmostEffectWindow topmostEffectWindow,
         IXamlThemeService xamlThemeService,
-        ITutorialService tutorialService)
+        ITutorialService tutorialService,
+        MonitorIndicator? monitorIndicator = null,
+        Services.RemoteMonitor.RemoteMonitorService? remoteMonitorService = null)
     {
         Logger = logger;
         SpeechService = speechService;
@@ -228,6 +242,8 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
         TopmostEffectWindow = topmostEffectWindow;
         XamlThemeService = xamlThemeService;
         TutorialService = tutorialService;
+        MonitorIndicator = monitorIndicator;
+        RemoteMonitorService = remoteMonitorService;
         
         ViewModel = new MainViewModel();
         DataContext = this;
@@ -263,6 +279,60 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
         TutorialService.Context["classpixelpro.mainWindow.hasComponentWithSettings"] = HasComponentWithSettings;
         TutorialService.Context["classpixelpro.mainWindow.hasContainerComponent"] = HasContainerComponent;
 #pragma warning restore CS8974 // 将方法组转换为非委托类型
+
+        // 远程监控指示器初始化
+        if (MonitorIndicator != null)
+        {
+            SettingsService.Settings.PropertyChanged += OnSettingsPropertyChangedForMonitorIndicator;
+            UpdateMonitorIndicatorVisibility();
+        }
+    }
+
+    private void OnSettingsPropertyChangedForMonitorIndicator(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(SettingsService.Settings.IsRemoteMonitorEnabled)
+            or nameof(SettingsService.Settings.IsMonitorIndicatorEnabled))
+        {
+            UpdateMonitorIndicatorVisibility();
+        }
+    }
+
+    /// <summary>
+    /// 根据监控启用状态、指示器开关和服务运行状态，显示或隐藏远程监控指示器。
+    /// </summary>
+    private void UpdateMonitorIndicatorVisibility()
+    {
+        if (MonitorIndicator == null) return;
+        var shouldShow = SettingsService.Settings.IsRemoteMonitorEnabled
+                         && SettingsService.Settings.IsMonitorIndicatorEnabled
+                         && RemoteMonitorService?.IsRunning == true;
+        if (shouldShow)
+        {
+            if (!MonitorIndicator.IsVisible)
+            {
+                // 定位到主窗口所在屏幕的左上角
+                try
+                {
+                    var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary;
+                    if (screen != null)
+                    {
+                        MonitorIndicator.PositionAtTopLeft(screen, 12);
+                    }
+                }
+                catch
+                {
+                    // 忽略定位失败
+                }
+                MonitorIndicator.Show();
+            }
+        }
+        else
+        {
+            if (MonitorIndicator.IsVisible)
+            {
+                MonitorIndicator.Hide();
+            }
+        }
     }
 
     private void PostInit()

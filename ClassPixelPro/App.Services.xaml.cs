@@ -38,6 +38,7 @@ using ClassPixelPro.Services.Management;
 using ClassPixelPro.Services.Metadata;
 using ClassPixelPro.Services.NotificationProviders;
 using ClassPixelPro.Services.SpeechService;
+using ClassPixelPro.Services.RemoteMonitor;
 using ClassPixelPro.ViewModels;
 using ClassPixelPro.ViewModels.EditMode;
 using ClassPixelPro.ViewModels.SettingsPages;
@@ -101,6 +102,12 @@ public partial class App
         services.AddSingleton<IAudioService, AudioService>();
         services.AddSingleton<ITutorialService, TutorialService>();
         services.AddSingleton<IRefreshingService, RefreshingService>();
+        // 远程监控服务
+        services.AddSingleton<ScreenCaptureService>();
+        services.AddSingleton<CameraCaptureService>();
+        services.AddSingleton<AudioPlaybackService>();
+        services.AddSingleton<CloudflaredManager>();
+        services.AddSingleton<RemoteMonitorService>();
         // ViewModels
         services.AddTransient<ProfileSettingsViewModel>();
         services.AddTransient<DevPortalViewModel>();
@@ -130,8 +137,10 @@ public partial class App
         services.AddTransient<UpdateSettingsPageViewModel>();
         services.AddTransient<DebugPageViewModel>();
         services.AddTransient<RefreshingSettingsViewModel>();
+        services.AddTransient<RemoteMonitorSettingsViewModel>();
         // Views
         services.AddTransient<ITopmostEffectPlayer>(x => x.GetRequiredService<TopmostEffectWindow>());
+        services.AddSingleton<Views.Controls.MonitorIndicator>();
         services.AddSingleton<MainWindow>();
         // services.AddTransient<SplashWindowBase, SplashWindow>();
         // services.AddTransient<FeatureDebugWindow>();
@@ -183,6 +192,7 @@ public partial class App
         services.AddSettingsPage<ManagementCredentialsSettingsPage>();
         services.AddSettingsPage<ManagementPolicySettingsPage>();
         services.AddSettingsPage<ErrorSettingsPage>();
+        services.AddSettingsPage<RemoteMonitorSettingsPage>();
         // 主界面组件
         services.AddComponent<TextComponent, TextComponentSettingsControl>();
         services.AddComponent<SeparatorComponent>();

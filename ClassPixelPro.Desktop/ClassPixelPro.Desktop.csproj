@@ -26,7 +26,7 @@
         <AppName>ClassPixelPro</AppName>
         <DebControlDescription>功能强大、可定制、跨平台的大屏课表显示工具。</DebControlDescription>
         <DesktopComment>功能强大、可定制、跨平台的大屏课表显示工具。</DesktopComment>
-        <DebControlHomepage>https://classpixelpro.tech</DebControlHomepage>
+        <DebControlHomepage>http://class.imzcz.cn/</DebControlHomepage>
         <DebControlSection>utils</DebControlSection>
         <DebControlMaintainer>ClassPixelPro</DebControlMaintainer>
         <Png32x32IconFile>Assets\AppLogo@32w.png</Png32x32IconFile>
