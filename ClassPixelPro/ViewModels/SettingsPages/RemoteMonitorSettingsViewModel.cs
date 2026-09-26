@@ -97,6 +97,26 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     /// </summary>
     [ObservableProperty] private bool _isFullyInitialized;
 
+    /// <summary>
+    /// 摄像头测试结果文本。
+    /// </summary>
+    [ObservableProperty] private string _cameraTestResult = "";
+
+    /// <summary>
+    /// 是否正在执行摄像头测试。
+    /// </summary>
+    [ObservableProperty] private bool _isTestingCamera;
+
+    /// <summary>
+    /// 截图测试结果文本。
+    /// </summary>
+    [ObservableProperty] private string _screenshotTestResult = "";
+
+    /// <summary>
+    /// 是否正在执行截图测试。
+    /// </summary>
+    [ObservableProperty] private bool _isTestingScreenshot;
+
     public RemoteMonitorSettingsViewModel(
         SettingsService settingsService,
         RemoteMonitorService remoteMonitorService,
@@ -310,33 +330,89 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     }
 
     /// <summary>
-    /// 测试截屏功能：采集一帧并返回字节数，用于在 UI 上反馈截屏是否可用。
+    /// 测试摄像头功能：列出可用摄像头并尝试采集一帧，结果写入 <see cref="CameraTestResult"/>。
+    /// </summary>
+    [RelayCommand]
+    private async Task TestCameraAsync()
+    {
+        IsTestingCamera = true;
+        CameraTestResult = "正在测试…";
+        try
+        {
+            await Task.Run(() =>
+            {
+                var cameras = _cameraCaptureService.GetCameras();
+                if (cameras.Count == 0)
+                {
+                    CameraTestResult = "❌ 未检测到摄像头";
+                    return;
+                }
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"✓ 检测到 {cameras.Count} 个摄像头：\n");
+                foreach (var cam in cameras)
+                {
+                    sb.Append($"  - {cam.Name}（索引 {cam.Index}）\n");
+                }
+                // 尝试采集一帧
+                var frame = _cameraCaptureService.CaptureFrameAsJpeg(70);
+                if (frame.Length > 0)
+                {
+                    sb.Append($"✓ 采集成功，帧大小 {frame.Length} 字节");
+                }
+                else
+                {
+                    sb.Append("⚠ 采集失败，帧为空");
+                }
+                CameraTestResult = sb.ToString();
+            });
+        }
+        catch (Exception ex)
+        {
+            CameraTestResult = $"❌ 测试失败：{ex.Message}";
+        }
+        finally
+        {
+            IsTestingCamera = false;
+        }
+    }
+
+    /// <summary>
+    /// 测试截屏功能：采集一帧并返回字节数，结果写入 <see cref="ScreenshotTestResult"/>。
     /// </summary>
     [RelayCommand]
     private async Task TestScreenshotAsync()
     {
-        if (IsBusy) return;
-        IsBusy = true;
+        IsTestingScreenshot = true;
+        ScreenshotTestResult = "正在测试…";
         try
         {
             await Task.Run(() =>
             {
                 if (!_screenCaptureService.IsSupported)
                 {
-                    _logger.LogWarning("当前平台不支持截屏");
+                    ScreenshotTestResult = "❌ 当前平台不支持截屏";
                     return;
                 }
                 var jpeg = _screenCaptureService.CaptureScreenAsJpeg(80);
-                _logger.LogInformation("截屏测试成功，JPEG 大小 {Size} 字节", jpeg.Length);
+                if (jpeg.Length > 0)
+                {
+                    ScreenshotTestResult = $"✓ 截图成功，大小 {jpeg.Length / 1024} KB";
+                    _logger.LogInformation("截屏测试成功，JPEG 大小 {Size} 字节", jpeg.Length);
+                }
+                else
+                {
+                    ScreenshotTestResult = "❌ 截图失败，数据为空";
+                }
             });
         }
         catch (Exception ex)
         {
+            ScreenshotTestResult = $"❌ 测试失败：{ex.Message}";
             _logger.LogError(ex, "截屏测试失败");
         }
         finally
         {
-            IsBusy = false;
+            IsTestingScreenshot = false;
         }
     }
 }

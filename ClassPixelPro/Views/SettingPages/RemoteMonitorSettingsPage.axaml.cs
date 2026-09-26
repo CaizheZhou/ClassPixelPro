@@ -81,9 +81,24 @@ public partial class RemoteMonitorSettingsPage : SettingsPageBase
         }
         this.ShowToast("正在测试截屏…");
         await ViewModel.TestScreenshotCommand.ExecuteAsync(null);
-        if (!ViewModel.IsBusy)
+        if (!string.IsNullOrEmpty(ViewModel.ScreenshotTestResult))
         {
-            this.ShowSuccessToast("截屏测试完成，请查看日志确认结果");
+            this.ShowToast(ViewModel.ScreenshotTestResult);
+        }
+    }
+
+    private async void ButtonTestCamera_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (!ViewModel.IsCameraCaptureSupported)
+        {
+            this.ShowWarningToast("当前平台不支持摄像头采集");
+            return;
+        }
+        this.ShowToast("正在测试摄像头…");
+        await ViewModel.TestCameraCommand.ExecuteAsync(null);
+        if (!string.IsNullOrEmpty(ViewModel.CameraTestResult))
+        {
+            this.ShowToast(ViewModel.CameraTestResult);
         }
     }
 

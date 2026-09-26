@@ -229,6 +229,19 @@ public sealed class RemoteMonitorService : IDisposable
             .UseUrls("http://0.0.0.0:0")
             .Configure(app =>
             {
+                // CORS：允许所有来源跨域访问（远程监控服务需要被班主任端浏览器跨域请求）
+                app.Use(async (context, next) =>
+                {
+                    context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+                    context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS";
+                    context.Response.Headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type";
+                    if (context.Request.Method == "OPTIONS")
+                    {
+                        context.Response.StatusCode = 204;
+                        return;
+                    }
+                    await next();
+                });
                 app.UseWebSockets(new WebSocketOptions
                 {
                     KeepAliveInterval = TimeSpan.FromSeconds(15),
@@ -306,11 +319,22 @@ public sealed class RemoteMonitorService : IDisposable
 
     private bool ValidateToken(HttpRequest request)
     {
+        // 1. 先检查 Authorization header
         var auth = request.Headers.Authorization.ToString();
-        if (string.IsNullOrEmpty(auth)) return false;
-        if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return false;
-        var token = auth["Bearer ".Length..].Trim();
-        return string.Equals(token, Token, StringComparison.Ordinal);
+        if (!string.IsNullOrEmpty(auth) && auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            var token = auth["Bearer ".Length..].Trim();
+            if (string.Equals(token, Token, StringComparison.Ordinal)) return true;
+        }
+
+        // 2. 再检查 query string 中的 token（WebSocket 连接用）
+        var queryToken = request.Query["token"].ToString();
+        if (!string.IsNullOrEmpty(queryToken))
+        {
+            if (string.Equals(queryToken, Token, StringComparison.Ordinal)) return true;
+        }
+
+        return false;
     }
 
     // ===== 端点：GET /screenshot =====
