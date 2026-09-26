@@ -678,6 +678,11 @@ public class ManagementService : ObservableRecipient, IManagementService
             }
 
             var profile = profileService.Profile;
+            // 使用 ExactTimeService 校正时间（含时间偏移），与客户端界面显示一致
+            // 避免因系统时间与校正时间不一致导致星期几错算、OrderedSchedules 日期键错位
+            var exactTimeService = IAppHost.TryGetService<IExactTimeService>();
+            var correctedNow = exactTimeService?.GetCurrentLocalDateTime() ?? DateTime.Now;
+            var correctedToday = correctedNow.Date;
             ClassPlan? overlayCp = null;
             Guid? sourceClassPlanId = null;
 
@@ -701,9 +706,9 @@ public class ManagementService : ObservableRecipient, IManagementService
                     if (archive?.ClassPlans != null && archive.ClassPlans.Count > 0)
                     {
                         // 计算今天星期几（1=周一，7=周日，与 TimeRule.WeekDay 一致）
-                        var todayWeekDay = DateTime.Today.DayOfWeek == DayOfWeek.Sunday
+                        var todayWeekDay = correctedToday.DayOfWeek == DayOfWeek.Sunday
                             ? 7
-                            : (int)DateTime.Today.DayOfWeek;
+                            : (int)correctedToday.DayOfWeek;
 
                         // 优先找 TimeRule.WeekDay == 今天 的 ClassPlan
                         foreach (var kvp in archive.ClassPlans)
@@ -766,7 +771,7 @@ public class ManagementService : ObservableRecipient, IManagementService
 
             AddLog("拉取临时课表", $"版本 {Versions.TempClassPlanVersion}", true);
 
-            var today = DateTime.Today;
+            var today = correctedToday;
 
             // 标记为临时层课表
             overlayCp.IsOverlay = true;
@@ -841,8 +846,14 @@ public class ManagementService : ObservableRecipient, IManagementService
             if (profileService == null) return;
             var profile = profileService.Profile;
 
+            // 使用 ExactTimeService 校正时间（含时间偏移），与客户端界面显示一致
+            // 避免因系统时间与校正时间不一致导致 OrderedSchedules 日期键错位
+            var exactTimeService = IAppHost.TryGetService<IExactTimeService>();
+            var correctedNow = exactTimeService?.GetCurrentLocalDateTime() ?? DateTime.Now;
+            var correctedToday = correctedNow.Date;
+
             var oldOverlayId = profile.OverlayClassPlanId;
-            var today = DateTime.Today;
+            var today = correctedToday;
 
             // 修改 ObservableDictionary/StyledProperty 会触发 CollectionChanged → UI 刷新，
             // 必须在 UI 线程执行，否则会抛出 "Call from invalid thread" 异常。
