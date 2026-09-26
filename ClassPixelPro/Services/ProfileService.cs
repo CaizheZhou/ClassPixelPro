@@ -91,6 +91,10 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         Logger.LogInformation("正在拉取集控档案");
         if (ManagementService.Connection == null)
             return;
+        // anyMerged 标志：只有至少一个源（课表/时间表/科目）的版本号比本地新且非空时才为 true。
+        // 若所有版本号都没变，则跳过版本号更新、SaveProfile、CopyObject 与 UI 刷新，
+        // 从而保留班主任端手动修改的课表，避免被集控档案覆盖。
+        bool anyMerged = false;
         try
         {
             Profile? classPlan = null;
@@ -98,6 +102,7 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             Profile? subjects = null;
             if (ManagementService.Manifest.ClassPlanSource.IsNewerAndNotNull(ManagementService.Versions.ClassPlanVersion))
             {
+                anyMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-classPlan");
                 var cpOld = LoadConfig<Profile>(ManagementClassPlanPath);
                 var cpNew = classPlan = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.ClassPlanSource.Value!);
@@ -112,6 +117,7 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             }
             if (ManagementService.Manifest.TimeLayoutSource.IsNewerAndNotNull(ManagementService.Versions.TimeLayoutVersion))
             {
+                anyMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-timeLayout");
                 var tlOld = LoadConfig<Profile>(ManagementTimeLayoutPath);
                 var tlNew = timeLayouts = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.TimeLayoutSource.Value!);
@@ -123,6 +129,7 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             }
             if (ManagementService.Manifest.SubjectsSource.IsNewerAndNotNull(ManagementService.Versions.SubjectsVersion))
             {
+                anyMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-subjects");
                 var subjectOld = LoadConfig<Profile>(ManagementSubjectsPath);
                 var subjectNew = subjects = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.SubjectsSource.Value!);
@@ -133,13 +140,20 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 spanDownload?.Finish();
             }
 
-            var spanSaving = spanLoadMgmtProfile?.StartChild("profile-mgmt-save");
-            SaveProfile("_management-profile.json");
-            ManagementService.Versions.ClassPlanVersion = ManagementService.Manifest.ClassPlanSource.Version;
-            ManagementService.Versions.TimeLayoutVersion = ManagementService.Manifest.TimeLayoutSource.Version;
-            ManagementService.Versions.SubjectsVersion = ManagementService.Manifest.SubjectsSource.Version;
-            ManagementService.SaveSettings();
-            spanSaving?.Finish();
+            if (anyMerged)
+            {
+                var spanSaving = spanLoadMgmtProfile?.StartChild("profile-mgmt-save");
+                SaveProfile("_management-profile.json");
+                ManagementService.Versions.ClassPlanVersion = ManagementService.Manifest.ClassPlanSource.Version;
+                ManagementService.Versions.TimeLayoutVersion = ManagementService.Manifest.TimeLayoutSource.Version;
+                ManagementService.Versions.SubjectsVersion = ManagementService.Manifest.SubjectsSource.Version;
+                ManagementService.SaveSettings();
+                spanSaving?.Finish();
+            }
+            else
+            {
+                Logger.LogInformation("集控课表/时间表/科目版本号均未变化，跳过合并，保留本地修改");
+            }
         }
         catch (Exception exp)
         {
@@ -147,16 +161,19 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             Logger.LogError(exp, "拉取档案失败。");
         }
 
-        //Profile = ConfigureFileHelper.CopyObject(Profile);
-        // CopyObject 赋值 ObservableDictionary 会触发 PropertyChanged → UI 刷新，
-        // 必须在 UI 线程执行，否则在定时刷新场景会抛出 "Call from invalid thread" 异常。
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        if (anyMerged)
         {
-            Profile.Subjects = CopyObject(Profile.Subjects);
-            Profile.TimeLayouts = CopyObject(Profile.TimeLayouts);
-            Profile.ClassPlans = CopyObject(Profile.ClassPlans);
-            Profile.RefreshTimeLayouts();
-        });
+            //Profile = ConfigureFileHelper.CopyObject(Profile);
+            // CopyObject 赋值 ObservableDictionary 会触发 PropertyChanged → UI 刷新，
+            // 必须在 UI 线程执行，否则在定时刷新场景会抛出 "Call from invalid thread" 异常。
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                Profile.Subjects = CopyObject(Profile.Subjects);
+                Profile.TimeLayouts = CopyObject(Profile.TimeLayouts);
+                Profile.ClassPlans = CopyObject(Profile.ClassPlans);
+                Profile.RefreshTimeLayouts();
+            });
+        }
         Logger.LogTrace("成功拉取集控档案！");
         spanLoadMgmtProfile?.Finish();
     }
