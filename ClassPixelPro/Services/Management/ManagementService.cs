@@ -971,7 +971,9 @@ public class ManagementService : ObservableRecipient, IManagementService
             if (profileService == null) return;
 
             var profile = profileService.Profile;
-            var now = DateTime.Now;
+            // 使用 ExactTimeService 校正时间（含时间偏移），与客户端界面显示一致
+            var exactTimeService = IAppHost.TryGetService<IExactTimeService>();
+            var now = exactTimeService?.GetCurrentLocalDateTime() ?? DateTime.Now;
 
             // 获取当前课程状态
             var currentLesson = GetCurrentLessonInfo(profile, now);
