@@ -284,8 +284,18 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
         if (MonitorIndicator != null)
         {
             SettingsService.Settings.PropertyChanged += OnSettingsPropertyChangedForMonitorIndicator;
+            if (RemoteMonitorService != null)
+            {
+                RemoteMonitorService.ActiveViewerChanged += OnActiveViewerChanged;
+            }
             UpdateMonitorIndicatorVisibility();
         }
+    }
+
+    private void OnActiveViewerChanged()
+    {
+        // 活跃查看者变化在 HTTP 服务器线程触发，需切回 UI 线程刷新指示器可见性
+        Dispatcher.UIThread.Post(UpdateMonitorIndicatorVisibility);
     }
 
     private void OnSettingsPropertyChangedForMonitorIndicator(object? sender, PropertyChangedEventArgs e)
@@ -299,13 +309,14 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
 
     /// <summary>
     /// 根据监控启用状态、指示器开关和服务运行状态，显示或隐藏远程监控指示器。
+    /// 指示器仅当有活跃查看者（老师正在查看）时才显示。
     /// </summary>
     private void UpdateMonitorIndicatorVisibility()
     {
         if (MonitorIndicator == null) return;
         var shouldShow = SettingsService.Settings.IsRemoteMonitorEnabled
                          && SettingsService.Settings.IsMonitorIndicatorEnabled
-                         && RemoteMonitorService?.IsRunning == true;
+                         && RemoteMonitorService?.HasActiveViewer == true;
         if (shouldShow)
         {
             if (!MonitorIndicator.IsVisible)

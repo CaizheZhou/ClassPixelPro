@@ -4,9 +4,9 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:ci="http://classpixelpro.tech/schemas/xaml/core"
         mc:Ignorable="d"
-        d:DesignWidth="80" d:DesignHeight="40"
+        d:DesignWidth="120" d:DesignHeight="32"
         x:Class="ClassPixelPro.Views.Controls.MonitorIndicator"
-        Width="80" Height="40"
+        Width="120" Height="32"
         CanResize="False"
         ShowInTaskbar="False"
         SystemDecorations="None"
@@ -15,50 +15,54 @@
         Background="Transparent"
         PointerPressed="MonitorIndicator_OnPointerPressed"
         DoubleTapped="MonitorIndicator_OnDoubleTapped">
-    <Border CornerRadius="20"
+    <!-- 改进的 UI：圆角矩形 + 半透明背景 + 柔和脉冲红点 + 摄像头图标 + "监控中" 文字 -->
+    <Border CornerRadius="8"
             Background="#CC1E1E1E"
-            BorderBrush="#33FFFFFF"
+            BorderBrush="#22FFFFFF"
             BorderThickness="1"
-            Padding="10 6"
-            BoxShadow="0 2 8 0 #66000000">
-        <Grid ColumnDefinitions="Auto,Auto,Auto">
-            <!-- 摄像头图标 -->
+            Padding="10 4"
+            Opacity="0.92"
+            BoxShadow="0 2 6 0 #55000000">
+        <Grid ColumnDefinitions="Auto,Auto,Auto"
+              VerticalAlignment="Center"
+              HorizontalAlignment="Center">
+            <!-- 摄像头图标：使用更精致的 video camera glyph -->
             <ci:FluentIcon Grid.Column="0"
                            Glyph="&#xE8B6;"
-                           FontSize="16"
-                           Foreground="White"
+                           FontSize="14"
+                           Foreground="#FFF5F5F5"
                            VerticalAlignment="Center" />
-            <!-- 闪烁红点 -->
+            <!-- 柔和脉冲红点：opacity 0.4 → 0.8，周期 1.5s -->
             <Ellipse Grid.Column="1"
-                     Width="8" Height="8"
+                     Width="7" Height="7"
                      Margin="6 0 0 0"
                      VerticalAlignment="Center"
                      x:Name="BlinkingDot">
                 <Ellipse.Fill>
-                    <SolidColorBrush Color="#FF3B30" />
+                    <SolidColorBrush Color="#FF4D4F" />
                 </Ellipse.Fill>
                 <Ellipse.Styles>
                     <Style Selector="Ellipse">
                         <Style.Animations>
-                            <Animation Duration="0:0:1" IterationCount="INFINITE">
+                            <Animation Duration="0:0:1.5" IterationCount="INFINITE">
                                 <KeyFrame Cue="0%">
-                                    <Setter Property="Opacity" Value="1" />
+                                    <Setter Property="Opacity" Value="0.4" />
                                 </KeyFrame>
                                 <KeyFrame Cue="50%">
-                                    <Setter Property="Opacity" Value="1" />
+                                    <Setter Property="Opacity" Value="0.8" />
                                 </KeyFrame>
                                 <KeyFrame Cue="100%">
-                                    <Setter Property="Opacity" Value="0.3" />
+                                    <Setter Property="Opacity" Value="0.4" />
                                 </KeyFrame>
                             </Animation>
                         </Style.Animations>
                     </Style>
                 </Ellipse.Styles>
             </Ellipse>
-            <!-- "监控中"文本 -->
+            <!-- "监控中" 文字标签：小字号 11px -->
             <TextBlock Grid.Column="2"
                        Text="监控中"
-                       Foreground="White"
+                       Foreground="#FFF5F5F5"
                        FontSize="11"
                        Margin="6 0 0 0"
                        VerticalAlignment="Center" />

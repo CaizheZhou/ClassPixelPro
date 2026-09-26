@@ -81,6 +81,22 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     /// </summary>
     [ObservableProperty] private bool _isCameraCaptureSupported;
 
+    /// <summary>
+    /// cloudflared 下载进度（0-100）。当无法获取总大小时为 -1。
+    /// </summary>
+    [ObservableProperty] private double _cloudflaredDownloadProgress;
+
+    /// <summary>
+    /// 是否正在下载 cloudflared.exe。
+    /// </summary>
+    [ObservableProperty] private bool _isCloudflaredDownloading;
+
+    /// <summary>
+    /// cloudflared 是否已完全初始化（已下载且服务已就绪）。
+    /// 下载中或未就绪时为 false，此时应隐藏功能设置项。
+    /// </summary>
+    [ObservableProperty] private bool _isFullyInitialized;
+
     public RemoteMonitorSettingsViewModel(
         SettingsService settingsService,
         RemoteMonitorService remoteMonitorService,
@@ -98,6 +114,7 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
 
         _cloudflaredManager.TunnelReady += OnTunnelReady;
         _cloudflaredManager.TunnelLost += OnTunnelLost;
+        _cloudflaredManager.DownloadProgressChanged += OnDownloadProgressChanged;
 
         // 周期性刷新 cloudflared/tunnel 状态（cloudflared 下载与隧道解析均为异步）
         _statusRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
@@ -125,6 +142,33 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
         _statusRefreshTimer.Stop();
         _cloudflaredManager.TunnelReady -= OnTunnelReady;
         _cloudflaredManager.TunnelLost -= OnTunnelLost;
+        _cloudflaredManager.DownloadProgressChanged -= OnDownloadProgressChanged;
+    }
+
+    private void OnDownloadProgressChanged(double percent)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            CloudflaredDownloadProgress = percent;
+            UpdateFullyInitialized();
+        });
+    }
+
+    /// <summary>
+    /// 根据下载状态和 cloudflared 就绪状态更新 IsFullyInitialized。
+    /// </summary>
+    private void UpdateFullyInitialized()
+    {
+        // 当 cloudflared 已就绪且不在下载中时，认为完全初始化
+        // 在非 Windows 平台上 cloudflared 不可用，但服务仍可运行（仅局域网），此时也视为已初始化
+        if (!OperatingSystem.IsWindows())
+        {
+            IsFullyInitialized = !IsCloudflaredDownloading;
+        }
+        else
+        {
+            IsFullyInitialized = !IsCloudflaredDownloading && _cloudflaredManager.IsExecutableReady;
+        }
     }
 
     private void OnTunnelReady(string url)
@@ -165,6 +209,7 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
             TunnelUrl = "";
         }
         IsMonitoring = _remoteMonitorService.IsRunning;
+        UpdateFullyInitialized();
     }
 
     /// <summary>
@@ -180,7 +225,18 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
         {
             if (_settingsService.Settings.IsRemoteMonitorEnabled)
             {
+                // 启用前若 cloudflared 未就绪，标记为下载中
+                if (OperatingSystem.IsWindows() && !_cloudflaredManager.IsExecutableReady)
+                {
+                    IsCloudflaredDownloading = true;
+                    CloudflaredDownloadProgress = 0;
+                }
+                UpdateFullyInitialized();
+
                 await _remoteMonitorService.StartAsync();
+
+                // 启动完成后清除下载中状态
+                IsCloudflaredDownloading = false;
                 _statusRefreshTimer.Start();
                 IsMonitoring = true;
                 _logger.LogInformation("远程监控已启动");
@@ -191,6 +247,7 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
                 _statusRefreshTimer.Stop();
                 IsMonitoring = false;
                 TunnelUrl = "";
+                IsCloudflaredDownloading = false;
                 _logger.LogInformation("远程监控已停止");
             }
             RefreshStatus();
@@ -200,6 +257,7 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
             _logger.LogError(ex, "切换远程监控状态失败");
             // 回滚开关状态
             _settingsService.Settings.IsRemoteMonitorEnabled = !_settingsService.Settings.IsRemoteMonitorEnabled;
+            IsCloudflaredDownloading = false;
         }
         finally
         {

@@ -54,6 +54,19 @@ public sealed class RemoteMonitorService : IDisposable
     private bool _running;
 
     /// <summary>
+    /// 当前活跃查看者数量（WebSocket 连接数 + 截图请求短期活跃计数）。
+    /// 用 Interlocked 保证线程安全。
+    /// </summary>
+    private int _activeViewerCount;
+
+    /// <summary>
+    /// 截图请求短期活跃计时器。每次截图请求重置此计时器，
+    /// 5 秒内若无新请求则递减活跃计数。
+    /// </summary>
+    private Timer? _screenshotActiveTimer;
+    private bool _screenshotActiveRegistered;
+
+    /// <summary>
     /// 随机生成的 Bearer token，所有请求需携带。
     /// </summary>
     public string Token { get; } = GenerateToken();
@@ -72,6 +85,17 @@ public sealed class RemoteMonitorService : IDisposable
     /// 服务是否正在运行。
     /// </summary>
     public bool IsRunning => _running;
+
+    /// <summary>
+    /// 是否有活跃的远程查看者（WebSocket 连接或近期截图请求）。
+    /// 监控指示器应基于此属性显示，而非 <see cref="IsRunning"/>。
+    /// </summary>
+    public bool HasActiveViewer => Interlocked.CompareExchange(ref _activeViewerCount, 0, 0) > 0;
+
+    /// <summary>
+    /// 活跃查看者数量变化时触发（连接/断开/截图请求）。
+    /// </summary>
+    public event Action? ActiveViewerChanged;
 
     public RemoteMonitorService(
         ILogger<RemoteMonitorService> logger,
@@ -177,6 +201,18 @@ public sealed class RemoteMonitorService : IDisposable
             }
             _host.Dispose();
             _host = null;
+        }
+
+        // 4. 清理截图活跃计时器并重置活跃计数
+        lock (this)
+        {
+            _screenshotActiveTimer?.Dispose();
+            _screenshotActiveTimer = null;
+            _screenshotActiveRegistered = false;
+        }
+        if (Interlocked.Exchange(ref _activeViewerCount, 0) > 0)
+        {
+            ActiveViewerChanged?.Invoke();
         }
 
         _serviceCts?.Cancel();
@@ -287,10 +323,47 @@ public sealed class RemoteMonitorService : IDisposable
             return;
         }
 
+        // 截图请求视为短期活跃查看：递增计数并重置 5 秒后递减的计时器
+        RegisterScreenshotActive();
+
         var jpeg = _screenCapture.CaptureScreenAsJpeg(80);
         context.Response.ContentType = "image/jpeg";
         context.Response.ContentLength = jpeg.Length;
         await context.Response.Body.WriteAsync(jpeg, ct);
+    }
+
+    /// <summary>
+    /// 注册截图请求为短期活跃查看者。
+    /// 首次请求时递增活跃计数，5 秒内若无新请求则递减。
+    /// </summary>
+    private void RegisterScreenshotActive()
+    {
+        lock (this)
+        {
+            if (!_screenshotActiveRegistered)
+            {
+                _screenshotActiveRegistered = true;
+                Interlocked.Increment(ref _activeViewerCount);
+                ActiveViewerChanged?.Invoke();
+            }
+
+            // 重置计时器：5 秒后若无新请求则注销
+            _screenshotActiveTimer?.Dispose();
+            _screenshotActiveTimer = new Timer(_ =>
+            {
+                lock (this)
+                {
+                    if (_screenshotActiveRegistered)
+                    {
+                        _screenshotActiveRegistered = false;
+                        Interlocked.Decrement(ref _activeViewerCount);
+                        ActiveViewerChanged?.Invoke();
+                    }
+                    _screenshotActiveTimer?.Dispose();
+                    _screenshotActiveTimer = null;
+                }
+            }, null, TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
+        }
     }
 
     // ===== 端点：GET /status =====
@@ -350,6 +423,10 @@ public sealed class RemoteMonitorService : IDisposable
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
         _logger.LogInformation("摄像头 WebSocket 已连接");
 
+        // 注册活跃查看者
+        Interlocked.Increment(ref _activeViewerCount);
+        ActiveViewerChanged?.Invoke();
+
         // 自适应帧率参数
         const int minFps = 5;
         const int maxFps = 30;
@@ -401,6 +478,9 @@ public sealed class RemoteMonitorService : IDisposable
         finally
         {
             _logger.LogInformation("摄像头 WebSocket 已断开（fps={Fps}）", currentFps);
+            // 注销活跃查看者
+            Interlocked.Decrement(ref _activeViewerCount);
+            ActiveViewerChanged?.Invoke();
         }
     }
 
@@ -409,6 +489,10 @@ public sealed class RemoteMonitorService : IDisposable
     {
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
         _logger.LogInformation("音频 WebSocket 已连接");
+
+        // 注册活跃查看者
+        Interlocked.Increment(ref _activeViewerCount);
+        ActiveViewerChanged?.Invoke();
 
         var buffer = new byte[16 * 1024];
         try
@@ -436,6 +520,9 @@ public sealed class RemoteMonitorService : IDisposable
         finally
         {
             _logger.LogInformation("音频 WebSocket 已断开");
+            // 注销活跃查看者
+            Interlocked.Decrement(ref _activeViewerCount);
+            ActiveViewerChanged?.Invoke();
         }
     }
 

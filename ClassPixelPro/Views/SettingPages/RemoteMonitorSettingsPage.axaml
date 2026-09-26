@@ -103,9 +103,29 @@
                     </controls3:SettingsExpanderItem.Footer>
                 </controls3:SettingsExpanderItem>
 
+                <!-- cloudflared 下载进度 -->
+                <controls3:SettingsExpanderItem Content="下载进度"
+                                                Description="正在下载 cloudflared.exe，请耐心等待…"
+                                                IsVisible="{Binding ViewModel.IsCloudflaredDownloading}">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <ProgressBar Width="160"
+                                         Height="6"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Value="{Binding ViewModel.CloudflaredDownloadProgress}" />
+                            <TextBlock Text="{Binding ViewModel.CloudflaredDownloadProgress, StringFormat={}{0:F1}%}"
+                                       VerticalAlignment="Center"
+                                       FontFamily="Consolas"
+                                       FontSize="12" />
+                        </StackPanel>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+
                 <!-- Tunnel URL -->
                 <controls3:SettingsExpanderItem Content="隧道 URL"
-                                                Description="班主任通过此 URL 访问远程监控接口。">
+                                                Description="班主任通过此 URL 访问远程监控接口。"
+                                                IsVisible="{Binding ViewModel.IsFullyInitialized}">
                     <controls3:SettingsExpanderItem.Footer>
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="{Binding ViewModel.TunnelUrl}"
@@ -129,7 +149,8 @@
 
                 <!-- 访问 Token -->
                 <controls3:SettingsExpanderItem Content="访问 Token"
-                                                Description="所有远程请求需携带此 Bearer Token。">
+                                                Description="所有远程请求需携带此 Bearer Token。"
+                                                IsVisible="{Binding ViewModel.IsFullyInitialized}">
                     <controls3:SettingsExpanderItem.Footer>
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="{Binding ViewModel.RemoteMonitorService.Token, Mode=OneWay}"
@@ -166,7 +187,8 @@
                     </StackPanel>
                 </controls3:SettingsExpander.Footer>
                 <controls3:SettingsExpanderItem Content="截屏与摄像头能力"
-                                                IsClickEnabled="False">
+                                                IsClickEnabled="False"
+                                                IsVisible="{Binding ViewModel.IsFullyInitialized}">
                     <controls3:SettingsExpanderItem.Footer>
                         <StackPanel Orientation="Horizontal" Spacing="12">
                             <StackPanel Orientation="Horizontal" Spacing="4">
@@ -199,6 +221,7 @@
                 <controls3:SettingsExpanderItem Content="测试截屏"
                                                 Description="采集一帧屏幕并编码为 JPEG，用于验证截屏功能是否正常。"
                                                 IsClickEnabled="True"
+                                                IsVisible="{Binding ViewModel.IsFullyInitialized}"
                                                 Click="ButtonTestScreenshot_OnClick" />
             </controls3:SettingsExpander>
         </StackPanel>

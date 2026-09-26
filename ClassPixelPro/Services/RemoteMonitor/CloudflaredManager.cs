@@ -74,6 +74,12 @@ public sealed class CloudflaredManager : IDisposable
     /// </summary>
     public event Action<long, long>? DownloadProgress;
 
+    /// <summary>
+    /// 下载百分比进度变化时触发，参数范围为 0.0-100.0。
+    /// 当无法获取总大小时，参数为 -1。
+    /// </summary>
+    public event Action<double>? DownloadProgressChanged;
+
     public CloudflaredManager(ILogger<CloudflaredManager> logger)
     {
         _logger = logger;
@@ -119,7 +125,22 @@ public sealed class CloudflaredManager : IDisposable
             await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
             downloaded += read;
             DownloadProgress?.Invoke(downloaded, total);
+
+            // 触发百分比进度事件（0.0-100.0）
+            if (total > 0)
+            {
+                var percent = (double)downloaded / total * 100.0;
+                DownloadProgressChanged?.Invoke(percent);
+            }
+            else
+            {
+                // 无法获取总大小，报告 -1
+                DownloadProgressChanged?.Invoke(-1);
+            }
         }
+
+        // 下载完成，确保进度为 100%
+        DownloadProgressChanged?.Invoke(100.0);
 
         fileStream.Close();
         // 原子替换
