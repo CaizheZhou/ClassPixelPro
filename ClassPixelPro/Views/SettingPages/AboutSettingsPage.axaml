@@ -14,6 +14,8 @@
       xmlns:system="clr-namespace:System;assembly=System.Runtime"
       xmlns:asyncImageLoader="clr-namespace:AsyncImageLoader;assembly=AsyncImageLoader.Avalonia"
       xmlns:controls3="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
+      xmlns:mdxaml="https://github.com/whistyun/Markdown.Avalonia"
+      xmlns:helpers="clr-namespace:ClassPixelPro.Core.Helpers;assembly=ClassPixelPro.Core"
       mc:Ignorable="d" 
       d:DesignHeight="450" d:DesignWidth="800"
       d:DataContext="{d:DesignInstance local:AboutSettingsPage}">
@@ -159,6 +161,19 @@
                                         IsVisible="{Binding ViewModel.ManagementService.HelpInfo.HasContent}">
                 <controls3:SettingsExpanderItem>
                     <StackPanel Margin="0 4">
+                        <!-- Markdown 帮助信息（type='md' 时展示） -->
+                        <mdxaml:MarkdownScrollViewer
+                            IsVisible="{Binding ViewModel.ManagementService.HelpInfo.HasMarkdownContent}"
+                            Engine="{x:Static helpers:MarkdownConvertHelper.Engine}"
+                            Markdown="{Binding ViewModel.ManagementService.HelpInfo.MarkdownContent}"
+                            Margin="0 0 0 8">
+                            <mdxaml:MarkdownScrollViewer.Styles>
+                                <Style Selector="mdxaml|MarkdownScrollViewer /template/ ScrollViewer">
+                                    <Setter Property="Padding" Value="0" />
+                                </Style>
+                            </mdxaml:MarkdownScrollViewer.Styles>
+                        </mdxaml:MarkdownScrollViewer>
+                        <!-- 结构化联系人信息（type='struct' 时展示） -->
                         <StackPanel Orientation="Horizontal" Spacing="6" Margin="0 0 8 0" IsVisible="{Binding ViewModel.ManagementService.HelpInfo.HasContactName}">
                             <TextBlock Text="技术联系人：" FontWeight="SemiBold"/>
                             <TextBlock Text="{Binding ViewModel.ManagementService.HelpInfo.ContactName}"/>

@@ -233,6 +233,14 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// 带 orgId 时后端先查组织自定义，没有则回退到全局默认；不带 orgId 时直接返回全局默认。
     /// 拉取成功后写入本地缓存文件并更新 HelpInfo 属性。
     /// </summary>
+    /// <remarks>
+    /// /api/help 返回 <c>{ type: 'md'|'struct', content: ... }</c> 格式：
+    /// <list type="bullet">
+    /// <item>type='md'：content 为 Markdown 字符串，存入 <see cref="ManagementHelpInfo.MarkdownContent"/>。</item>
+    /// <item>type='struct'：content 为 <c>{ contactName, contactMethod, contactId, notes }</c> 结构化对象。</item>
+    /// </list>
+    /// 不能直接反序列化为 <see cref="ManagementHelpInfo"/>，需根据 type 分别解析。
+    /// </remarks>
     /// <param name="orgId">组织 ID。为 null 时拉取全局默认。</param>
     /// <param name="baseUrl">API base URL。为 null 时使用 <see cref="DefaultHelpInfoApiBaseUrl"/>。</param>
     private async Task FetchHelpInfoFromApiAsync(string? orgId = null, string? baseUrl = null)
@@ -243,8 +251,45 @@ public class ManagementService : ObservableRecipient, IManagementService
             : $"{apiBase}/api/help?orgId={orgId}";
         try
         {
-            var info = await WebRequestHelper.Default.GetJson<ManagementHelpInfo>(new Uri(url), retries: 1);
-            if (info != null)
+            var resp = await WebRequestHelper.Default.GetJson<HelpInfoApiResponse>(new Uri(url), retries: 1);
+            if (resp == null)
+            {
+                Logger.LogWarning("拉取帮助信息返回空内容（orgId={OrgId}）", orgId ?? "default");
+                return;
+            }
+
+            var info = new ManagementHelpInfo();
+            var type = resp.Type;
+            var content = resp.Content;
+
+            if (type == "md" && content.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                // Markdown 格式：content 是 markdown 字符串
+                info.MarkdownContent = content.GetString() ?? string.Empty;
+            }
+            else if (type == "struct" && content.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                // 结构化格式：content 是 { contactName, contactMethod, contactId, notes }
+                if (content.TryGetProperty("contactName", out var cn)) info.ContactName = cn.GetString() ?? string.Empty;
+                if (content.TryGetProperty("contactMethod", out var cm)) info.ContactMethod = cm.GetString() ?? string.Empty;
+                if (content.TryGetProperty("contactId", out var ci)) info.ContactId = ci.GetString() ?? string.Empty;
+                if (content.TryGetProperty("notes", out var n)) info.Notes = n.GetString() ?? string.Empty;
+            }
+            else
+            {
+                // 未知格式，尝试把 content 当作 ManagementHelpInfo 直接反序列化（向后兼容旧格式）
+                try
+                {
+                    info = System.Text.Json.JsonSerializer.Deserialize<ManagementHelpInfo>(content, JsonHelperOptions) ?? new ManagementHelpInfo();
+                }
+                catch
+                {
+                    Logger.LogWarning("帮助信息格式未知（type={Type}），跳过", type);
+                    return;
+                }
+            }
+
+            if (info.HasContent)
             {
                 HelpInfo = info;
                 try
@@ -255,7 +300,7 @@ public class ManagementService : ObservableRecipient, IManagementService
                 {
                     Logger.LogWarning(exSave, "保存帮助信息到本地失败");
                 }
-                Logger.LogInformation("已拉取帮助信息（orgId={OrgId}）", orgId ?? "default");
+                Logger.LogInformation("已拉取帮助信息（orgId={OrgId}，type={Type}）", orgId ?? "default", type);
             }
         }
         catch (Exception ex)
@@ -1172,6 +1217,19 @@ public class ManagementService : ObservableRecipient, IManagementService
     }
 
     private static readonly System.Text.Json.JsonSerializerOptions JsonHelperOptions = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// /api/help 接口响应包装格式：<c>{ type: 'md'|'struct', content: ... }</c>。
+    /// content 的具体形态由 type 决定（字符串或对象），因此用 <see cref="System.Text.Json.JsonElement"/> 保留原始 JSON 节点。
+    /// </summary>
+    private class HelpInfoApiResponse
+    {
+        /// <summary>内容类型：'md' 为 Markdown 字符串，'struct' 为结构化联系人对象。</summary>
+        public string? Type { get; set; }
+
+        /// <summary>原始内容节点，由调用方根据 <see cref="Type"/> 解释。</summary>
+        public System.Text.Json.JsonElement Content { get; set; }
+    }
 
     /// <summary>
     /// 集控下发的临时调课课表载荷（旧包装格式）。

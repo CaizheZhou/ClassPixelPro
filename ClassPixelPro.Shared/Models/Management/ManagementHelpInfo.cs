@@ -26,13 +26,20 @@ public class ManagementHelpInfo
     public string Notes { get; set; } = string.Empty;
 
     /// <summary>
+    /// Markdown 格式的帮助信息内容（从 /api/help 的 type='md' 响应获取）。
+    /// 当集控后端以 Markdown 文档形式下发帮助信息时，客户端直接渲染此字段。
+    /// </summary>
+    public string MarkdownContent { get; set; } = string.Empty;
+
+    /// <summary>
     /// 是否包含有效内容（任一字段非空即视为有效）
     /// </summary>
     public bool HasContent =>
         !string.IsNullOrWhiteSpace(ContactName) ||
         !string.IsNullOrWhiteSpace(ContactMethod) ||
         !string.IsNullOrWhiteSpace(ContactId) ||
-        !string.IsNullOrWhiteSpace(Notes);
+        !string.IsNullOrWhiteSpace(Notes) ||
+        !string.IsNullOrWhiteSpace(MarkdownContent);
 
     /// <summary>
     /// 是否有技术联系人
@@ -48,4 +55,9 @@ public class ManagementHelpInfo
     /// 是否有其他说明
     /// </summary>
     public bool HasNotes => !string.IsNullOrWhiteSpace(Notes);
+
+    /// <summary>
+    /// 是否有 Markdown 格式的帮助内容
+    /// </summary>
+    public bool HasMarkdownContent => !string.IsNullOrWhiteSpace(MarkdownContent);
 }
