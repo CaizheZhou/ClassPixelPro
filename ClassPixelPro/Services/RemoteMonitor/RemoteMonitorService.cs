@@ -455,9 +455,9 @@ public sealed class RemoteMonitorService : IDisposable
         ActiveViewerChanged?.Invoke();
 
         // 自适应帧率参数
-        const int minFps = 3;
-        const int maxFps = 15;
-        var currentFps = 8;
+        const int minFps = 15;
+        const int maxFps = 30;
+        var currentFps = 25;
         var frameIntervalMs = 1000.0 / currentFps;
 
         try
@@ -465,7 +465,7 @@ public sealed class RemoteMonitorService : IDisposable
             while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
                 var sendStart = DateTime.UtcNow;
-                var frame = _cameraCapture.CaptureFrameAsJpeg(40);
+                var frame = _cameraCapture.CaptureFrameAsJpeg(65);
                 if (frame.Length == 0)
                 {
                     // 采集失败，降低帧率
@@ -475,10 +475,10 @@ public sealed class RemoteMonitorService : IDisposable
                     continue;
                 }
 
-                // 帧大小优化：超过 50KB 时降低质量重采
-                if (frame.Length > 50 * 1024)
+                // 帧大小优化：超过 150KB 时降低质量重采
+                if (frame.Length > 150 * 1024)
                 {
-                    var smallerFrame = _cameraCapture.CaptureFrameAsJpeg(25);
+                    var smallerFrame = _cameraCapture.CaptureFrameAsJpeg(50);
                     if (smallerFrame.Length > 0 && smallerFrame.Length < frame.Length)
                     {
                         frame = smallerFrame;
@@ -490,13 +490,13 @@ public sealed class RemoteMonitorService : IDisposable
                 var sendElapsed = DateTime.UtcNow - sendStart;
 
                 // 自适应帧率：发送耗时长则降帧率，短则升帧率
-                if (sendElapsed.TotalMilliseconds > 300)
+                if (sendElapsed.TotalMilliseconds > 200)
                 {
-                    currentFps = Math.Max(minFps, currentFps - 3);
+                    currentFps = Math.Max(minFps, currentFps - 2);
                 }
-                else if (sendElapsed.TotalMilliseconds < 100)
+                else if (sendElapsed.TotalMilliseconds < 80)
                 {
-                    currentFps = Math.Min(maxFps, currentFps + 1);
+                    currentFps = Math.Min(maxFps, currentFps + 2);
                 }
                 frameIntervalMs = 1000.0 / currentFps;
 

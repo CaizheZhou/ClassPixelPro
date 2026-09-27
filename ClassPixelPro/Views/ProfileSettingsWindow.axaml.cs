@@ -846,10 +846,37 @@ public partial class ProfileSettingsWindow : MyWindow
     
     private async void ButtonDeleteTimeLayout_OnClick(object sender, RoutedEventArgs e)
     {
+        const string eventName = "views.ProfileSettingsWindow.timeLayout.remove";
+
+        if (ViewModel.SelectedTimeLayout == null)
+        {
+            this.ShowWarningToast("请先选择要删除的时间表。");
+            SentrySdk.Metrics.EmitCounter(eventName, 1,
+            [
+                new KeyValuePair<string, object>("IsSuccess", "false"),
+                new KeyValuePair<string, object>("Reason", "未选择时间表。")
+            ]
+            );
+            FlyoutHelper.CloseAncestorFlyout(sender);
+            return;
+        }
+
         var key = ViewModel.ProfileService.Profile.TimeLayouts
             .FirstOrDefault(x => x.Value == ViewModel.SelectedTimeLayout).Key;
+        if (key == Guid.Empty)
+        {
+            this.ShowWarningToast("未能找到该时间表，可能已被删除。");
+            SentrySdk.Metrics.EmitCounter(eventName, 1,
+            [
+                new KeyValuePair<string, object>("IsSuccess", "false"),
+                new KeyValuePair<string, object>("Reason", "时间表不在字典中。")
+            ]
+            );
+            FlyoutHelper.CloseAncestorFlyout(sender);
+            return;
+        }
+
         var c = ViewModel.ProfileService.Profile.ClassPlans.Any(x => x.Value.TimeLayoutId == key);
-        const string eventName = "views.ProfileSettingsWindow.timeLayout.remove";
         if (c)
         {
             this.ShowWarningToast("仍有课表在使用该时间表。删除时间表前需要删除所有使用该时间表的课表。");
@@ -868,6 +895,8 @@ public partial class ProfileSettingsWindow : MyWindow
         ]
         );
         ViewModel.ProfileService.Profile.TimeLayouts.Remove(key);
+        ViewModel.SelectedTimeLayout =
+            ViewModel.ProfileService.Profile.TimeLayouts.Values.FirstOrDefault();
         FlyoutHelper.CloseAncestorFlyout(sender);
     }
     

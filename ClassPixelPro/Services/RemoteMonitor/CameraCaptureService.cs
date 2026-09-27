@@ -122,7 +122,7 @@ public sealed class CameraCaptureService : IDisposable
     }
 
     /// <summary>
-    /// 打开当前索引对应的摄像头，并设置 640x480@15fps 以降低帧大小、提升传输流畅度。
+    /// 打开当前索引对应的摄像头，并设置 1280x720@30fps 以兼顾画质与传输流畅度。
     /// 调用方需持有 <see cref="_captureLock"/>。
     /// </summary>
     private void OpenCamera()
@@ -131,12 +131,12 @@ public sealed class CameraCaptureService : IDisposable
         _capture = new VideoCapture(_currentIndex, VideoCaptureAPIs.DSHOW);
         if (_capture.IsOpened())
         {
-            // 设置分辨率 640x480 降低帧大小
-            _capture.Set(VideoCaptureProperties.FrameWidth, 640);
-            _capture.Set(VideoCaptureProperties.FrameHeight, 480);
-            // 设置帧率 15fps
-            _capture.Set(VideoCaptureProperties.Fps, 15);
-            _logger.LogInformation("摄像头 {Index} 已打开，640x480@15fps", _currentIndex);
+            // 设置分辨率 1280x720（720p）保证画质
+            _capture.Set(VideoCaptureProperties.FrameWidth, 1280);
+            _capture.Set(VideoCaptureProperties.FrameHeight, 720);
+            // 设置帧率 30fps 保证流畅度
+            _capture.Set(VideoCaptureProperties.Fps, 30);
+            _logger.LogInformation("摄像头 {Index} 已打开，1280x720@30fps", _currentIndex);
         }
         else
         {
