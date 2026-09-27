@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using OpenCvSharp;
 
@@ -35,6 +36,8 @@ public sealed class CameraCaptureService : IDisposable
     private readonly object _captureLock = new();
     private VideoCapture? _capture;
     private int _currentIndex = 0;
+    private int _consecutiveFailures = 0;
+    private const int MaxConsecutiveFailures = 10;
     private bool _disposed;
 
     public CameraCaptureService(ILogger<CameraCaptureService> logger)
@@ -110,12 +113,35 @@ public sealed class CameraCaptureService : IDisposable
         lock (_captureLock)
         {
             _currentIndex = index;
-            // 释放旧 capture，下次采集时重新打开
             _capture?.Release();
             _capture?.Dispose();
             _capture = null;
+            _consecutiveFailures = 0;
         }
         _logger.LogInformation("已选择摄像头索引 {Index}", index);
+    }
+
+    /// <summary>
+    /// 打开当前索引对应的摄像头，并设置 640x480@15fps 以降低帧大小、提升传输流畅度。
+    /// 调用方需持有 <see cref="_captureLock"/>。
+    /// </summary>
+    private void OpenCamera()
+    {
+        _capture?.Dispose();
+        _capture = new VideoCapture(_currentIndex, VideoCaptureAPIs.DSHOW);
+        if (_capture.IsOpened())
+        {
+            // 设置分辨率 640x480 降低帧大小
+            _capture.Set(VideoCaptureProperties.FrameWidth, 640);
+            _capture.Set(VideoCaptureProperties.FrameHeight, 480);
+            // 设置帧率 15fps
+            _capture.Set(VideoCaptureProperties.Fps, 15);
+            _logger.LogInformation("摄像头 {Index} 已打开，640x480@15fps", _currentIndex);
+        }
+        else
+        {
+            _logger.LogWarning("无法打开摄像头 {Index}", _currentIndex);
+        }
     }
 
     /// <summary>
@@ -123,7 +149,7 @@ public sealed class CameraCaptureService : IDisposable
     /// </summary>
     /// <param name="quality">JPEG 编码质量（1-100）。</param>
     /// <returns>JPEG 字节数组；采集失败时返回空数组。</returns>
-    public byte[] CaptureFrameAsJpeg(int quality = 80)
+    public byte[] CaptureFrameAsJpeg(int quality = 40)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -134,25 +160,40 @@ public sealed class CameraCaptureService : IDisposable
         {
             if (_capture == null || !_capture.IsOpened())
             {
-                _capture?.Dispose();
-                _capture = new VideoCapture(_currentIndex, VideoCaptureAPIs.DSHOW);
-                if (!_capture.IsOpened())
+                OpenCamera();
+                if (_capture == null || !_capture.IsOpened())
                 {
-                    _logger.LogWarning("无法打开摄像头 {Index}", _currentIndex);
                     return Array.Empty<byte>();
                 }
             }
 
-            using var frame = new Mat();
-            if (!_capture.Read(frame) || frame.Empty())
+            // 摄像头预热：首次打开后前几帧可能为空，重试最多 5 次
+            for (int retry = 0; retry < 5; retry++)
             {
-                return Array.Empty<byte>();
+                using var frame = new Mat();
+                if (_capture.Read(frame) && !frame.Empty())
+                {
+                    _consecutiveFailures = 0;
+                    // 编码为 JPEG
+                    var paramsVec = new int[] { (int)ImwriteFlags.JpegQuality, Math.Clamp(quality, 1, 100) };
+                    Cv2.ImEncode(".jpg", frame, out var bytes, paramsVec);
+                    return bytes;
+                }
+                // 空帧，短暂等待后重试
+                Thread.Sleep(30);
             }
 
-            // 编码为 JPEG
-            var paramsVec = new int[] { (int)ImwriteFlags.JpegQuality, Math.Clamp(quality, 1, 100) };
-            Cv2.ImEncode(".jpg", frame, out var bytes, paramsVec);
-            return bytes;
+            // 连续采集失败
+            _consecutiveFailures++;
+            if (_consecutiveFailures >= MaxConsecutiveFailures)
+            {
+                _logger.LogWarning("连续 {Count} 次采集失败，重新打开摄像头 {Index}", _consecutiveFailures, _currentIndex);
+                _capture?.Release();
+                _capture?.Dispose();
+                _capture = null;
+                _consecutiveFailures = 0;
+            }
+            return Array.Empty<byte>();
         }
     }
 
