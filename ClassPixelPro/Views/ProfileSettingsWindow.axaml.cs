@@ -897,6 +897,9 @@ public partial class ProfileSettingsWindow : MyWindow
         ViewModel.ProfileService.Profile.TimeLayouts.Remove(key);
         ViewModel.SelectedTimeLayout =
             ViewModel.ProfileService.Profile.TimeLayouts.Values.FirstOrDefault();
+        // 字典的 Remove 只触发 CollectionChanged（用于审计），不会触发 Profile.PropertyChanged 自动保存，
+        // 必须显式保存到磁盘，否则重启后时间表会重新出现。
+        ViewModel.ProfileService.SaveProfile();
         FlyoutHelper.CloseAncestorFlyout(sender);
     }
     
