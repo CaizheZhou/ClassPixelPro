@@ -55,6 +55,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', github.event.inputs.release_tag) || github.ref }}
+
       - name: Download release artifact
         uses: actions/download-artifact@v4
         with:
@@ -62,13 +68,71 @@ jobs:
           pattern: release_package
           merge-multiple: true
 
+      - name: Generate release notes
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # 从 CHANGELOG.md 提取当前版本的更新日志
+          # CHANGELOG.md 采用 Keep a Changelog 格式：## [tag] - YYYY-MM-DD
+          # 提取从 "## [$RELEASE_TAG]" 到下一个 "## [" 之间的内容
+          python3 - > release_notes.md <<'PYEOF'
+          import os
+          import re
+          import sys
+
+          tag = os.environ['RELEASE_TAG']
+          changelog_path = 'CHANGELOG.md'
+
+          try:
+              with open(changelog_path, 'r', encoding='utf-8') as f:
+                  content = f.read()
+          except FileNotFoundError:
+              print(f'ClassPixelPro {tag}', end='')
+              sys.exit(0)
+
+          # 匹配 ## [tag] - YYYY-MM-DD 后续内容直到下一个 ## [ 或文件结尾
+          pattern = rf'## \[{re.escape(tag)}\][^\n]*\n(.*?)(?=\n## \[|\Z)'
+          match = re.search(pattern, content, re.DOTALL)
+          if match:
+              notes = match.group(1).strip()
+          else:
+              notes = f'ClassPixelPro {tag}'
+
+          print(notes, end='')
+          PYEOF
+
+          # 追加校验和与下载链接表格
+          {
+            echo ""
+            echo "## 校验和与下载链接"
+            echo ""
+            echo "**下载时请注意核对文件 SHA512 是否正确。**"
+            echo ""
+            echo "| 文件名 | SHA512 |"
+            echo "|--------|--------|"
+            for f in ./rel/*.zip; do
+              if [ -f "$f" ]; then
+                filename=$(basename "$f")
+                sha=$(sha512sum "$f" | awk '{print $1}' | tr 'a-f' 'A-F')
+                echo "| $filename | $sha |"
+              fi
+            done
+          } >> release_notes.md
+
+          echo "===== Generated release notes ====="
+          cat release_notes.md
+          echo "=================================="
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag || github.ref_name }}
         run: |
+          set -euo pipefail
           gh release create "$RELEASE_TAG" ./rel/*.zip \
             --title "ClassPixelPro $RELEASE_TAG" \
-            --generate-notes \
+            --notes-file release_notes.md \
             --latest
