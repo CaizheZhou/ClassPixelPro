@@ -444,6 +444,11 @@ public partial class ManagementSettingsPage : SettingsPageBase
                         }
                     });
                 }
+                // 修复：把拉取到的 cpNew 落盘到 ManagementClassPlanPath，
+                // 作为后续 MergeManagementProfileAsync 中 MergeDictionary 的 diffBase，
+                // 否则 diffBase 永远为空，集控合并无法识别"被删除的键"。
+                ConfigureFileHelper.SaveConfig(
+                    Services.ProfileService.ManagementClassPlanPath, cpNew);
                 ManagementService.Versions.ClassPlanVersion = manifest.ClassPlanSource.Version;
             }
 
@@ -462,6 +467,9 @@ public partial class ManagementSettingsPage : SettingsPageBase
                         }
                     });
                 }
+                // 修复：同步落盘 tlNew 到 ManagementTimeLayoutPath，理由同上。
+                ConfigureFileHelper.SaveConfig(
+                    Services.ProfileService.ManagementTimeLayoutPath, tlNew);
                 ManagementService.Versions.TimeLayoutVersion = manifest.TimeLayoutSource.Version;
             }
 
@@ -480,6 +488,9 @@ public partial class ManagementSettingsPage : SettingsPageBase
                         }
                     });
                 }
+                // 修复：同步落盘 subjectNew 到 ManagementSubjectsPath，理由同上。
+                ConfigureFileHelper.SaveConfig(
+                    Services.ProfileService.ManagementSubjectsPath, subjectNew);
                 ManagementService.Versions.SubjectsVersion = manifest.SubjectsSource.Version;
             }
 
@@ -488,6 +499,23 @@ public partial class ManagementSettingsPage : SettingsPageBase
             if (profileService != null && (options.ClassPlan || options.TimeLayout || options.Subjects))
             {
                 profileService.SaveProfile("_management-profile.json");
+            }
+
+            // 修复：Clear + Add 只触发 CollectionChanged，不触发 ObservableDictionary 所在
+            // Profile 对象的 PropertyChanged，绑定到整个集合（而非集合项）的 UI 不会刷新。
+            // 用 CopyObject 重建实例并重新赋值，借助 setter 触发 PropertyChanged。
+            // 同时调用 RefreshTimeLayouts() 重建 ClassPlan → TimeLayout 引用缓存，
+            // 否则覆盖后 ClassPlan.TimeLayoutId 指向的 TimeLayout 可能尚未在 UI 端生效。
+            if (profile != null && (options.ClassPlan || options.TimeLayout || options.Subjects))
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    profile.ClassPlans = ConfigureFileHelper.CopyObject(profile.ClassPlans);
+                    profile.ClassPlanGroups = ConfigureFileHelper.CopyObject(profile.ClassPlanGroups);
+                    profile.TimeLayouts = ConfigureFileHelper.CopyObject(profile.TimeLayouts);
+                    profile.Subjects = ConfigureFileHelper.CopyObject(profile.Subjects);
+                    profile.RefreshTimeLayouts();
+                });
             }
 
             // 6. 拉取并应用应用设置

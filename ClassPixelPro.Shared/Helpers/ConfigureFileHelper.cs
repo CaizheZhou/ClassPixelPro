@@ -166,7 +166,10 @@ public class ConfigureFileHelper
     public static IDictionary<TKey, TValue> MergeDictionary<TKey, TValue>(IDictionary<TKey, TValue> raw,
         IDictionary<TKey, TValue> diffBase, IDictionary<TKey, TValue> diffNew)
     {
-        var rm = (from i in diffNew.Keys where !diffBase.Keys.Contains(i) select i).ToList();
+        // 修复：rm 应表示"在基准中存在、但在新字典中已被删除"的键，
+        // 即 diffBase.Keys - diffNew.Keys。原实现写成 diffNew.Keys - diffBase.Keys（新增的键），
+        // 会导致新增的键被错误地从 raw 中删除。
+        var rm = (from i in diffBase.Keys where !diffNew.Keys.Contains(i) select i).ToList();
         rm.ForEach(i => raw.Remove(i));
         foreach (var i in diffNew)
         {

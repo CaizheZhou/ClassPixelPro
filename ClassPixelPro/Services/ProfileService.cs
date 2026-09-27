@@ -94,7 +94,11 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         // anyMerged 标志：只有至少一个源（课表/时间表/科目）的版本号比本地新且非空时才为 true。
         // 若所有版本号都没变，则跳过版本号更新、SaveProfile、CopyObject 与 UI 刷新，
         // 从而保留班主任端手动修改的课表，避免被集控档案覆盖。
-        bool anyMerged = false;
+        // 修复：用单独的标志跟踪每个源是否实际发生合并，避免在仅一个源更新时
+        // 错误地把另外两个源的版本号也提前推进，导致下次跳过本应拉取的更新。
+        bool classPlanMerged = false;
+        bool timeLayoutMerged = false;
+        bool subjectsMerged = false;
         try
         {
             Profile? classPlan = null;
@@ -102,7 +106,7 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             Profile? subjects = null;
             if (ManagementService.Manifest.ClassPlanSource.IsNewerAndNotNull(ManagementService.Versions.ClassPlanVersion))
             {
-                anyMerged = true;
+                classPlanMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-classPlan");
                 var cpOld = LoadConfig<Profile>(ManagementClassPlanPath);
                 var cpNew = classPlan = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.ClassPlanSource.Value!);
@@ -117,7 +121,7 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             }
             if (ManagementService.Manifest.TimeLayoutSource.IsNewerAndNotNull(ManagementService.Versions.TimeLayoutVersion))
             {
-                anyMerged = true;
+                timeLayoutMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-timeLayout");
                 var tlOld = LoadConfig<Profile>(ManagementTimeLayoutPath);
                 var tlNew = timeLayouts = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.TimeLayoutSource.Value!);
@@ -129,7 +133,7 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             }
             if (ManagementService.Manifest.SubjectsSource.IsNewerAndNotNull(ManagementService.Versions.SubjectsVersion))
             {
-                anyMerged = true;
+                subjectsMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-subjects");
                 var subjectOld = LoadConfig<Profile>(ManagementSubjectsPath);
                 var subjectNew = subjects = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.SubjectsSource.Value!);
@@ -140,13 +144,29 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 spanDownload?.Finish();
             }
 
+            // 修复：把刚拉取到的 cpNew/tlNew/subjectNew 落盘到对应的 Management*Path，
+            // 作为下次 MergeDictionary 的 diffBase。原实现只读取不保存，导致 diffBase 永远为空，
+            // MergeDictionary 无法识别"被删除的键"，rm 永远为空集。
+            if (classPlan != null)
+                SaveConfig(ManagementClassPlanPath, classPlan);
+            if (timeLayouts != null)
+                SaveConfig(ManagementTimeLayoutPath, timeLayouts);
+            if (subjects != null)
+                SaveConfig(ManagementSubjectsPath, subjects);
+
+            bool anyMerged = classPlanMerged || timeLayoutMerged || subjectsMerged;
             if (anyMerged)
             {
                 var spanSaving = spanLoadMgmtProfile?.StartChild("profile-mgmt-save");
                 SaveProfile("_management-profile.json");
-                ManagementService.Versions.ClassPlanVersion = ManagementService.Manifest.ClassPlanSource.Version;
-                ManagementService.Versions.TimeLayoutVersion = ManagementService.Manifest.TimeLayoutSource.Version;
-                ManagementService.Versions.SubjectsVersion = ManagementService.Manifest.SubjectsSource.Version;
+                // 修复：只更新实际发生合并的版本号，避免把未变更的源版本号一并推进，
+                // 否则下次该源有真实更新时会因版本号已等于 manifest 而被跳过。
+                if (classPlanMerged)
+                    ManagementService.Versions.ClassPlanVersion = ManagementService.Manifest.ClassPlanSource.Version;
+                if (timeLayoutMerged)
+                    ManagementService.Versions.TimeLayoutVersion = ManagementService.Manifest.TimeLayoutSource.Version;
+                if (subjectsMerged)
+                    ManagementService.Versions.SubjectsVersion = ManagementService.Manifest.SubjectsSource.Version;
                 ManagementService.SaveSettings();
                 spanSaving?.Finish();
             }
@@ -161,7 +181,9 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             Logger.LogError(exp, "拉取档案失败。");
         }
 
-        if (anyMerged)
+        // 重新计算 anyMerged 用于 UI 刷新分支（try 块内已用于版本号更新）。
+        bool anyMergedForUi = classPlanMerged || timeLayoutMerged || subjectsMerged;
+        if (anyMergedForUi)
         {
             //Profile = ConfigureFileHelper.CopyObject(Profile);
             // CopyObject 赋值 ObservableDictionary 会触发 PropertyChanged → UI 刷新，
@@ -172,6 +194,12 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 Profile.TimeLayouts = CopyObject(Profile.TimeLayouts);
                 Profile.ClassPlans = CopyObject(Profile.ClassPlans);
                 Profile.RefreshTimeLayouts();
+                // 修复：CopyObject 通过 JSON 序列化重建 ObservableDictionary，
+                // 会丢失 LoadProfileAsync 中订阅的 CollectionChanged 审计事件处理器，
+                // 需在此重新订阅，否则集控合并后用户手动增删课表不再上报审计事件。
+                Profile.ClassPlans.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.ClassPlanUpdated, args);
+                Profile.TimeLayouts.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.TimeLayoutUpdated, args);
+                Profile.Subjects.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.SubjectUpdated, args);
             });
         }
         Logger.LogTrace("成功拉取集控档案！");
