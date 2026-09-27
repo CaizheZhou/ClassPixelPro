@@ -75,10 +75,13 @@ public sealed class AudioPlaybackService : IDisposable
         }
         if (audioData == null || audioData.Length == 0) return;
 
+        _logger.LogInformation("播放音频数据：{Size} 字节", audioData.Length);
+
         lock (_playbackLock)
         {
             EnsurePlaybackInitialized();
             _bufferedProvider!.AddSamples(audioData, 0, audioData.Length);
+            _logger.LogInformation("已添加 {Size} 字节到播放缓冲区", audioData.Length);
         }
     }
 

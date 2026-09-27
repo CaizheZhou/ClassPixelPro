@@ -197,6 +197,23 @@ public sealed class CameraCaptureService : IDisposable
         }
     }
 
+    /// <summary>
+    /// 释放当前摄像头（停止占用设备）。
+    /// 与 <see cref="Dispose"/> 不同，此方法不标记对象为已释放，
+    /// 后续仍可重新打开摄像头。用于 WebSocket 断开时主动释放设备占用。
+    /// </summary>
+    public void ReleaseCamera()
+    {
+        lock (_captureLock)
+        {
+            _capture?.Release();
+            _capture?.Dispose();
+            _capture = null;
+            _consecutiveFailures = 0;
+        }
+        _logger.LogInformation("摄像头已释放");
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

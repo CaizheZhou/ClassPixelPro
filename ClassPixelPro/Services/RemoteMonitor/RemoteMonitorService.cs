@@ -203,7 +203,10 @@ public sealed class RemoteMonitorService : IDisposable
             _host = null;
         }
 
-        // 4. 清理截图活跃计时器并重置活跃计数
+        // 4. 释放摄像头
+        _cameraCapture.ReleaseCamera();
+
+        // 5. 清理截图活跃计时器并重置活跃计数
         lock (this)
         {
             _screenshotActiveTimer?.Dispose();
@@ -512,8 +515,15 @@ public sealed class RemoteMonitorService : IDisposable
         finally
         {
             _logger.LogInformation("摄像头 WebSocket 已断开（fps={Fps}）", currentFps);
+            // 释放摄像头，避免无人查看时占用设备
+            _cameraCapture.ReleaseCamera();
             // 注销活跃查看者
-            Interlocked.Decrement(ref _activeViewerCount);
+            var newCount = Interlocked.Decrement(ref _activeViewerCount);
+            if (newCount < 0)
+            {
+                // 防止计数变负（不应该发生但防御性编程）
+                Interlocked.Exchange(ref _activeViewerCount, 0);
+            }
             ActiveViewerChanged?.Invoke();
         }
     }
@@ -542,6 +552,7 @@ public sealed class RemoteMonitorService : IDisposable
                 {
                     var data = new byte[result.Count];
                     Array.Copy(buffer, data, result.Count);
+                    _logger.LogInformation("收到音频数据：{Size} 字节", data.Length);
                     _audioPlayback.PlayAudio(data);
                 }
             }
@@ -555,7 +566,12 @@ public sealed class RemoteMonitorService : IDisposable
         {
             _logger.LogInformation("音频 WebSocket 已断开");
             // 注销活跃查看者
-            Interlocked.Decrement(ref _activeViewerCount);
+            var newCount = Interlocked.Decrement(ref _activeViewerCount);
+            if (newCount < 0)
+            {
+                // 防止计数变负（不应该发生但防御性编程）
+                Interlocked.Exchange(ref _activeViewerCount, 0);
+            }
             ActiveViewerChanged?.Invoke();
         }
     }

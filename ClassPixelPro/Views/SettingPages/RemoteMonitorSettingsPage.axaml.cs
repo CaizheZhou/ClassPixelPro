@@ -27,9 +27,9 @@ public partial class RemoteMonitorSettingsPage : SettingsPageBase
         DataContext = this;
     }
 
-    private void RemoteMonitorSettingsPage_OnLoaded(object sender, RoutedEventArgs e)
+    private async void RemoteMonitorSettingsPage_OnLoaded(object sender, RoutedEventArgs e)
     {
-        ViewModel.Initialize();
+        await ViewModel.InitializeAsync();
     }
 
     private void RemoteMonitorSettingsPage_OnUnloaded(object sender, RoutedEventArgs e)

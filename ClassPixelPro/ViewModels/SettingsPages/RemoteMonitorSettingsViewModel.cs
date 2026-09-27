@@ -113,9 +113,16 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     [ObservableProperty] private string _screenshotTestResult = "";
 
     /// <summary>
+
     /// 是否正在执行截图测试。
     /// </summary>
     [ObservableProperty] private bool _isTestingScreenshot;
+
+    /// <summary>
+    /// 是否正在初始化（后台加载摄像头列表等耗时操作）。
+    /// 初始化完成前 UI 可据此显示加载状态，避免页面卡顿。
+    /// </summary>
+    [ObservableProperty] private bool _isInitializing;
 
     public RemoteMonitorSettingsViewModel(
         SettingsService settingsService,
@@ -143,15 +150,40 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
 
     /// <summary>
     /// 初始化 ViewModel 状态：刷新 cloudflared 就绪、摄像头列表、服务运行状态。
-    /// 应在设置页 Loaded 时调用。
+    /// 应在设置页 Loaded 时调用。摄像头枚举等耗时操作在后台线程执行，避免阻塞 UI。
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        IsInitializing = true;
+        try
+        {
+            IsScreenCaptureSupported = _screenCaptureService.IsSupported;
+            IsCameraCaptureSupported = _cameraCaptureService.IsSupported;
+            RefreshStatus();
+            IsMonitoring = _remoteMonitorService.IsRunning;
+
+            // 摄像头枚举需要逐个尝试打开设备索引，耗时较长，放到后台线程执行
+            await RefreshCamerasInternalAsync();
+        }
+        finally
+        {
+            IsInitializing = false;
+        }
+    }
+
+    /// <summary>
+    /// 同步初始化（兼容旧调用方）。耗时操作以 fire-and-forget 方式在后台执行。
+    /// 推荐使用 <see cref="InitializeAsync"/>。
     /// </summary>
     public void Initialize()
     {
         IsScreenCaptureSupported = _screenCaptureService.IsSupported;
         IsCameraCaptureSupported = _cameraCaptureService.IsSupported;
         RefreshStatus();
-        RefreshCamerasInternal();
         IsMonitoring = _remoteMonitorService.IsRunning;
+
+        // 摄像头枚举后台执行，不阻塞 UI 线程
+        _ = RefreshCamerasInternalAsync();
     }
 
     /// <summary>
@@ -289,28 +321,40 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     /// 刷新可用摄像头列表。仅在 Windows 平台有效。
     /// </summary>
     [RelayCommand]
-    private void RefreshCameras()
+    private async Task RefreshCamerasAsync()
     {
-        RefreshCamerasInternal();
+        await RefreshCamerasInternalAsync();
     }
 
-    private void RefreshCamerasInternal()
+    private async Task RefreshCamerasInternalAsync()
     {
         try
         {
-            AvailableCameras = _cameraCaptureService.GetCameras();
+            // 摄像头枚举需要逐个尝试打开设备索引 0-9，可能耗时数百毫秒，
+            // 放到后台线程执行避免阻塞 UI 线程。
+            var cameras = await Task.Run(() => _cameraCaptureService.GetCameras());
             var selectedIndex = _settingsService.Settings.RemoteMonitorSelectedCameraIndex;
-            SelectedCamera = AvailableCameras.FirstOrDefault(c => c.Index == selectedIndex)
-                             ?? AvailableCameras.FirstOrDefault(c => c.IsDefault)
-                             ?? AvailableCameras.FirstOrDefault();
+            var selected = cameras.FirstOrDefault(c => c.Index == selectedIndex)
+                          ?? cameras.FirstOrDefault(c => c.IsDefault)
+                          ?? cameras.FirstOrDefault();
+            // UI 属性更新需在主线程执行
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AvailableCameras = cameras;
+                SelectedCamera = selected;
+            });
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "刷新摄像头列表失败");
-            AvailableCameras = new List<CameraInfo>();
-            SelectedCamera = null;
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AvailableCameras = new List<CameraInfo>();
+                SelectedCamera = null;
+            });
         }
     }
+
 
     /// <summary>
     /// 选中摄像头变更时同步到 <see cref="CameraCaptureService"/> 与设置。
