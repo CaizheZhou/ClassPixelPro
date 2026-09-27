@@ -107,6 +107,18 @@ public class ComponentsService : ObservableRecipient, IComponentsService
                 .SaveJsonAsync<ComponentProfile>(ManagementService.Manifest.ComponentsSource.Value!,
                     Management.ManagementService.ManagementComponentsPath);
             ManagementService.Versions.ComponentsVersion = ManagementService.Manifest.ComponentsSource.Version;
+            // 修复 P1-18：原实现更新了 Versions.ComponentsVersion 但没有调用 SaveSettings()，
+            // 版本号只在内存，下次启动从磁盘读到旧值 → 每次启动重复拉取。
+            // 在此处落盘确保版本号持久化。
+            try
+            {
+                ManagementService.SaveSettings();
+                Logger.LogTrace("已保存集控版本号（组件配置更新后）");
+            }
+            catch (Exception exSave)
+            {
+                Logger.LogWarning(exSave, "保存集控版本号失败（组件配置更新后）");
+            }
         }
         catch (Exception e)
         {

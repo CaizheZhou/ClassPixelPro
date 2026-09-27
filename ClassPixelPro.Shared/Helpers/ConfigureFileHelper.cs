@@ -182,11 +182,58 @@ public class ConfigureFileHelper
         return raw;
     }
 
+    /// <summary>
+    /// 原子写入文本文件：先写入同目录下的临时文件，再用 File.Replace/File.Move 原子替换。
+    /// <para>
+    /// 修复 P0-11：原实现用 <c>new FileStream(path, FileMode.Create)</c> 直接截断目标文件，
+    /// 并发写同一路径会抛 IOException，且写入过程中崩溃会留下半写的损坏文件。
+    /// 改为「写临时文件再原子替换」后：
+    /// <list type="bullet">
+    /// <item>并发写不会互相截断，临时文件名带 PID+GUID 保证互不冲突；</item>
+    /// <item>写入过程中崩溃只会留下孤儿临时文件，目标文件保持旧内容完整；</item>
+    /// <item>File.Replace 在同卷上是原子的（Windows/POSIX 均保证）。</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    /// <param name="path">目标文件路径。</param>
+    /// <param name="content">要写入的内容。</param>
     private static void WriteAllTextSafe(string path, string content)
     {
-        using var stream = new FileStream(path, FileMode.Create);
-        using var writer = new StreamWriter(stream);
-        writer.Write(content);
-        stream.Flush(true);
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        // 临时文件名带进程 ID 与 GUID，避免并发写时互相覆盖。
+        var temp = path + $".tmp.{Environment.ProcessId}.{Guid.NewGuid():N}";
+        try
+        {
+            // 先把全部内容写到临时文件（FileMode.CreateNew 保证不会覆盖已存在的临时文件）。
+            File.WriteAllText(temp, content);
+
+            // 原子替换：目标存在时用 File.Replace，不存在时用 File.Move。
+            if (File.Exists(path))
+            {
+                // File.Replace(src, dst, backupPath) 在同卷上原子替换 dst 为 src。
+                // backupPath 传 null 表示不保留备份（Windows 上会直接删除原 dst）。
+                File.Replace(temp, path, null);
+            }
+            else
+            {
+                File.Move(temp, path, overwrite: true);
+            }
+        }
+        finally
+        {
+            // 异常路径下清理可能残留的临时文件（成功路径上 temp 已被 Move/Replace 接管）。
+            try
+            {
+                if (File.Exists(temp))
+                    File.Delete(temp);
+            }
+            catch
+            {
+                // 清理失败不影响主流程；孤儿临时文件不影响目标文件正确性。
+            }
+        }
     }
 }

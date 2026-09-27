@@ -844,7 +844,7 @@ public partial class ProfileSettingsWindow : MyWindow
         SentrySdk.Metrics.EmitCounter("views.ProfileSettingsWindow.timeLayout.duplicate", 1);
     }
     
-    private async void ButtonDeleteTimeLayout_OnClick(object sender, RoutedEventArgs e)
+    private void ButtonDeleteTimeLayout_OnClick(object sender, RoutedEventArgs e)
     {
         const string eventName = "views.ProfileSettingsWindow.timeLayout.remove";
 
@@ -865,7 +865,7 @@ public partial class ProfileSettingsWindow : MyWindow
             .FirstOrDefault(x => x.Value == ViewModel.SelectedTimeLayout).Key;
         if (key == Guid.Empty)
         {
-            this.ShowWarningToast("未能找到该时间表，可能已被删除。");
+            this.ShowWarningToast($"未能找到时间表「{ViewModel.SelectedTimeLayout.Name}」，它可能已被删除，或来自另一个档案。");
             SentrySdk.Metrics.EmitCounter(eventName, 1,
             [
                 new KeyValuePair<string, object>("IsSuccess", "false"),
@@ -876,16 +876,33 @@ public partial class ProfileSettingsWindow : MyWindow
             return;
         }
 
-        var c = ViewModel.ProfileService.Profile.ClassPlans.Any(x => x.Value.TimeLayoutId == key);
-        if (c)
+        // 找出所有仍在引用该时间表的课表（含临时层课表），用于在提示中给出明确原因。
+        var usedBy = ViewModel.ProfileService.Profile.ClassPlans
+            .Where(x => x.Value.TimeLayoutId == key)
+            .Select(x => x.Value.Name)
+            .ToList();
+        if (usedBy.Count > 0)
         {
-            this.ShowWarningToast("仍有课表在使用该时间表。删除时间表前需要删除所有使用该时间表的课表。");
+            const int maxShown = 5;
+            var shown = usedBy.Take(maxShown).Select(n => $"「{n}」");
+            var detail = string.Join("、", shown);
+            if (usedBy.Count > maxShown)
+            {
+                detail += $" 等 {usedBy.Count} 个";
+            }
+
+            this.ShowWarningToast(
+                $"无法删除时间表「{ViewModel.SelectedTimeLayout.Name}」：仍有 {usedBy.Count} 个课表在使用它（{detail}）。" +
+                "请先把这些课表改用其它时间表，或删除这些课表。");
             SentrySdk.Metrics.EmitCounter(eventName, 1,
             [
                 new KeyValuePair<string, object>("IsSuccess", "false"),
                 new KeyValuePair<string, object>("Reason", "仍有课表在使用该时间表。")
             ]
             );
+            // 修复：原实现在这个分支直接 return，没有关闭确认浮出层，也没有给出具体是哪些课表在占用。
+            // 结果是用户点了「删除」后浮出层原地不动、时间表也没消失，表现为"删除按钮没反应"。
+            FlyoutHelper.CloseAncestorFlyout(sender);
             return;
         }
 
@@ -894,12 +911,14 @@ public partial class ProfileSettingsWindow : MyWindow
             new KeyValuePair<string, object>("IsSuccess", "true")
         ]
         );
+        var removedName = ViewModel.SelectedTimeLayout.Name;
         ViewModel.ProfileService.Profile.TimeLayouts.Remove(key);
         ViewModel.SelectedTimeLayout =
             ViewModel.ProfileService.Profile.TimeLayouts.Values.FirstOrDefault();
         // 字典的 Remove 只触发 CollectionChanged（用于审计），不会触发 Profile.PropertyChanged 自动保存，
         // 必须显式保存到磁盘，否则重启后时间表会重新出现。
         ViewModel.ProfileService.SaveProfile();
+        this.ShowSuccessToast($"已删除时间表「{removedName}」。");
         FlyoutHelper.CloseAncestorFlyout(sender);
     }
     

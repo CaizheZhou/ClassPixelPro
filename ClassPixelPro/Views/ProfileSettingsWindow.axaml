@@ -1250,6 +1250,7 @@
                                                                        Label="时间表信息" />
                                             <controls:CommandBarButton IconSource="{ci:FluentIconSource &#xE61D;}"
                                                                        ToolTip.Tip="删除该时间表。"
+                                                                       IsEnabled="{Binding $parent[views:ProfileSettingsWindow].ViewModel.SelectedTimeLayout, Converter={x:Static ObjectConverters.IsNotNull}}"
                                                                        Label="删除时间表">
                                                 <controls:CommandBarButton.Flyout>
                                                     <Flyout>

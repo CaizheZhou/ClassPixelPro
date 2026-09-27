@@ -362,6 +362,17 @@ public partial class ManagementSettingsPage : SettingsPageBase
     /// 与 <see cref="Services.Management.ManagementService.ReloadManagementAsync"/> 不同，此方法以"覆盖"方式
     /// （而非合并）应用课表/时间表/科目，且只处理选中的配置项，未选中的项保持不变。
     /// </para>
+    /// <para>
+    /// 修复 P1-17：自动路径（ReloadManagementAsync）走合并语义（MergeManagementProfileAsync），
+    /// 此手动路径走覆盖语义（Clear+Add）。两套语义有意为之：
+    /// <list type="bullet">
+    /// <item>自动路径：定时轮询，需保留用户手动修改，故用合并。</item>
+    /// <item>手动路径：用户在 UI 上明确点击"拉取并覆盖"，确认对话框已警告"覆盖本地设置"，
+    /// 故用覆盖以符合用户预期。</item>
+    /// </list>
+    /// 为确保两套路径的版本号不互相踩，此方法在每次拉取后立即更新对应版本号并最终 SaveSettings()，
+    /// 与自动路径的版本号更新策略一致。下次自动轮询会因版本号已等于 manifest 而跳过，不会重复拉取。
+    /// </para>
     /// </summary>
     private async Task PullAndOverwriteAsync(PullOptions options)
     {
@@ -529,7 +540,9 @@ public partial class ManagementSettingsPage : SettingsPageBase
                 var settingsService = IAppHost.TryGetService<Services.SettingsService>();
                 if (settingsService != null)
                 {
-                    settingsService.Settings = appSettings;
+                    // 修复 P1-13：使用 ReplaceSettings 统一处理 PropertyChanged 订阅/取消订阅，
+                    // 避免旧对象仍能触发 SettingsChanged 而新对象修改不落盘。
+                    settingsService.ReplaceSettings(appSettings);
                 }
                 ManagementService.Versions.AppSettingsVersion = manifest.AppSettingsSource.Version;
             }

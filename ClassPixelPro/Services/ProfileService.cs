@@ -96,6 +96,8 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         // 从而保留班主任端手动修改的课表，避免被集控档案覆盖。
         // 修复：用单独的标志跟踪每个源是否实际发生合并，避免在仅一个源更新时
         // 错误地把另外两个源的版本号也提前推进，导致下次跳过本应拉取的更新。
+        // 修复 P0-12：xxxMerged 在下载成功**之后**才置位，下载失败时保持 false，
+        // 避免下载失败也执行 CopyObject 与 UI 刷新。
         bool classPlanMerged = false;
         bool timeLayoutMerged = false;
         bool subjectsMerged = false;
@@ -106,7 +108,6 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
             Profile? subjects = null;
             if (ManagementService.Manifest.ClassPlanSource.IsNewerAndNotNull(ManagementService.Versions.ClassPlanVersion))
             {
-                classPlanMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-classPlan");
                 var cpOld = LoadConfig<Profile>(ManagementClassPlanPath);
                 var cpNew = classPlan = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.ClassPlanSource.Value!);
@@ -117,11 +118,12 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                     MergeDictionary(Profile.ClassPlans, cpOld.ClassPlans, cpNew.ClassPlans);
                     MergeDictionary(Profile.ClassPlanGroups, cpOld.ClassPlanGroups, cpNew.ClassPlanGroups);
                 });
+                // 修复 P0-12：下载 + 合并均成功后才置位，避免下载失败也触发后续 CopyObject。
+                classPlanMerged = true;
                 spanDownload?.Finish();
             }
             if (ManagementService.Manifest.TimeLayoutSource.IsNewerAndNotNull(ManagementService.Versions.TimeLayoutVersion))
             {
-                timeLayoutMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-timeLayout");
                 var tlOld = LoadConfig<Profile>(ManagementTimeLayoutPath);
                 var tlNew = timeLayouts = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.TimeLayoutSource.Value!);
@@ -129,11 +131,12 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 {
                     MergeDictionary(Profile.TimeLayouts, tlOld.TimeLayouts, tlNew.TimeLayouts);
                 });
+                // 修复 P0-12：下载 + 合并均成功后才置位。
+                timeLayoutMerged = true;
                 spanDownload?.Finish();
             }
             if (ManagementService.Manifest.SubjectsSource.IsNewerAndNotNull(ManagementService.Versions.SubjectsVersion))
             {
-                subjectsMerged = true;
                 var spanDownload = spanLoadMgmtProfile?.StartChild("profile-mgmt-download-subjects");
                 var subjectOld = LoadConfig<Profile>(ManagementSubjectsPath);
                 var subjectNew = subjects = await ManagementService.Connection.GetJsonAsync<Profile>(ManagementService.Manifest.SubjectsSource.Value!);
@@ -141,6 +144,8 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
                 {
                     MergeDictionary(Profile.Subjects, subjectOld.Subjects, subjectNew.Subjects);
                 });
+                // 修复 P0-12：下载 + 合并均成功后才置位。
+                subjectsMerged = true;
                 spanDownload?.Finish();
             }
 
@@ -182,17 +187,39 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         }
 
         // 重新计算 anyMerged 用于 UI 刷新分支（try 块内已用于版本号更新）。
+        // 修复 P0-12：因 xxxMerged 已改为下载成功后置位，若下载失败 anyMergedForUi 为 false，
+        // 不会执行 CopyObject，避免下载失败也卡 UI。
         bool anyMergedForUi = classPlanMerged || timeLayoutMerged || subjectsMerged;
         if (anyMergedForUi)
         {
-            //Profile = ConfigureFileHelper.CopyObject(Profile);
-            // CopyObject 赋值 ObservableDictionary 会触发 PropertyChanged → UI 刷新，
-            // 必须在 UI 线程执行，否则在定时刷新场景会抛出 "Call from invalid thread" 异常。
+            // 修复 P0-12：深拷贝（JSON 序列化/反序列化）是 CPU 密集操作，
+            // 原实现在 UI 线程执行，5 秒一轮周期性卡 UI。
+            // 改为先在后台线程（Task.Run）完成深拷贝，再回到 UI 线程做赋值与事件订阅。
+            // 赋值 ObservableDictionary 会触发 PropertyChanged → UI 刷新，必须在 UI 线程执行。
+            var subjectsCopy = Profile.Subjects;
+            var timeLayoutsCopy = Profile.TimeLayouts;
+            var classPlansCopy = Profile.ClassPlans;
+            try
+            {
+                (subjectsCopy, timeLayoutsCopy, classPlansCopy) = await Task.Run(() =>
+                {
+                    return (CopyObject(Profile.Subjects),
+                            CopyObject(Profile.TimeLayouts),
+                            CopyObject(Profile.ClassPlans));
+                });
+            }
+            catch (Exception exCopy)
+            {
+                Logger.LogWarning(exCopy, "后台深拷贝档案失败，跳过 UI 刷新");
+                spanLoadMgmtProfile?.Finish();
+                return;
+            }
+
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                Profile.Subjects = CopyObject(Profile.Subjects);
-                Profile.TimeLayouts = CopyObject(Profile.TimeLayouts);
-                Profile.ClassPlans = CopyObject(Profile.ClassPlans);
+                Profile.Subjects = subjectsCopy;
+                Profile.TimeLayouts = timeLayoutsCopy;
+                Profile.ClassPlans = classPlansCopy;
                 Profile.RefreshTimeLayouts();
                 // 修复：CopyObject 通过 JSON 序列化重建 ObservableDictionary，
                 // 会丢失 LoadProfileAsync 中订阅的 CollectionChanged 审计事件处理器，

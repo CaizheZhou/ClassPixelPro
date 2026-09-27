@@ -43,6 +43,37 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
 
     public bool WillMigrateInitTutorial { get; set; } = false;
 
+    /// <summary>
+    /// Settings.PropertyChanged 的命名处理器。
+    /// <para>
+    /// 修复 P1-13：原实现使用 lambda 匿名委托订阅 PropertyChanged，
+    /// 无法在替换 Settings 对象时取消旧对象的订阅，导致旧对象仍能触发 SettingsChanged → SaveSettings，
+    /// 而新对象的修改反而无法落盘。改为命名委托后，可在替换前 -= 取消旧订阅、替换后 += 订阅新对象。
+    /// </para>
+    /// </summary>
+    private void SettingsOnPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        SettingsChanged(args.PropertyName!);
+    }
+
+    /// <summary>
+    /// 安全替换 Settings 对象：先取消旧对象的 PropertyChanged 订阅，再赋值，再订阅新对象。
+    /// <para>
+    /// 修复 P1-13：所有外部替换 SettingsService.Settings 的调用方都应改用此方法，
+    /// 避免漏挂/重复挂 PropertyChanged 导致设置变更不落盘或重复落盘。
+    /// </para>
+    /// </summary>
+    /// <param name="newSettings">新的 Settings 实例。</param>
+    public void ReplaceSettings(Settings newSettings)
+    {
+        // 取消旧对象订阅（即使旧对象为 null 也不会抛异常，-= 对未订阅的委托是 no-op）
+        _settings.PropertyChanged -= SettingsOnPropertyChanged;
+        _settings = newSettings;
+        _settings.PropertyChanged += SettingsOnPropertyChanged;
+        // 触发 SettingsService 自身 PropertyChanged，让绑定到 SettingsService.Settings 的 UI 刷新
+        OnPropertyChanged(nameof(Settings));
+    }
+
     private async Task LoadManagementSettingsAsync()
     {
         if (!ManagementService.Manifest.DefaultSettingsSource.IsNewerAndNotNull(ManagementService.Versions
@@ -55,8 +86,8 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
         Logger.LogInformation("拉取集控默认设置");
         var url = ManagementService.Manifest.DefaultSettingsSource.Value!;
         var settings = await ManagementService.Connection.GetJsonAsync<Settings>(url);
-        Settings = settings;
-        Settings.PropertyChanged += (sender, args) => SettingsChanged(args.PropertyName!);
+        // 修复 P1-13：使用 ReplaceSettings 统一处理订阅/取消订阅，避免漏挂 PropertyChanged。
+        ReplaceSettings(settings);
         Logger.LogTrace("拉取集控默认设置成功！");
     }
 
@@ -79,8 +110,8 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
             {
                 Logger.LogInformation("加载配置文件。");
                 var r = ConfigureFileHelper.LoadConfig<Settings>(Path.Combine(CommonDirectories.AppRootFolderPath, "Settings.json"));
-                Settings = r;
-                Settings.PropertyChanged += (sender, args) => SettingsChanged(args.PropertyName!);
+                // 修复 P1-13：使用 ReplaceSettings 统一处理订阅/取消订阅。
+                ReplaceSettings(r);
             }
 
             // 当还没有初始化应用且启用集控时，从集控拉取设置。
@@ -98,8 +129,8 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
                 try
                 {
                     var mgmtAppSettings = ConfigureFileHelper.LoadConfig<Settings>(Management.ManagementService.ManagementAppSettingsPath);
-                    Settings = mgmtAppSettings;
-                    Settings.PropertyChanged += (sender, args) => SettingsChanged(args.PropertyName!);
+                    // 修复 P1-13：使用 ReplaceSettings 统一处理订阅/取消订阅。
+                    ReplaceSettings(mgmtAppSettings);
                     Logger.LogInformation("已应用集控下发的应用设置（appsettings）");
                 }
                 catch (Exception exAppSettings)

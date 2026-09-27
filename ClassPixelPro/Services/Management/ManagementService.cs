@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using ClassPixelPro.Core;
 using ClassPixelPro.Core.Abstractions.Services;
@@ -122,6 +123,46 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// 仅在首次连接成功后上报一次，避免每次轮询都上报浪费带宽。
     /// </summary>
     private bool _hasReported = false;
+
+    /// <summary>
+    /// 串行化 <see cref="ReloadManagementAsync"/> 的信号量。
+    /// <para>
+    /// 修复 P0-7：原实现无并发保护，5 秒轮询、DataUpdated 命令、SetupManagement 首次拉取
+    /// 三个入口可能同时进入 ReloadManagementAsync，并发写同一批 JSON 文件与 SettingsService.Settings。
+    /// 此信号量保证同一时刻只有一个 Reload 在执行，后续进入的会等待（不是丢弃，避免漏拉）。
+    /// </para>
+    /// </summary>
+    private readonly SemaphoreSlim _reloadLock = new(1, 1);
+
+    /// <summary>
+    /// 集控轮询循环的取消令牌源。
+    /// <para>
+    /// 修复 P0-7：在 <see cref="SetupManagement"/> 时创建，<see cref="ExitManagementAsync"/> 时 Cancel，
+    /// 让轮询循环能立即停止，而不是等 <see cref="IsManagementEnabled"/> 变 false 后下一轮才发现。
+    /// </para>
+    /// </summary>
+    private CancellationTokenSource? _managementCts;
+
+    /// <summary>
+    /// 集控轮询循环是否正在运行。
+    /// <para>
+    /// 修复 P1-19：原实现 SetupManagement() 每次调用都会 Task.Run 启动新的轮询循环，
+    /// 在 App.axaml.cs:691 和 JoinManagementAsync 两处被调用。加入集控后若重启被延迟/失败，
+    /// 会出现两个轮询循环同时跑，重复拉取、重复写文件、重复上报。
+    /// 用此标志做幂等保护：SetupManagement() 检查标志，已在运行则跳过启动新循环。
+    /// 标志在轮询循环退出时（正常退出或异常退出）重置为 false。
+    /// </para>
+    /// </summary>
+    private volatile bool _isPollingLoopRunning;
+
+    /// <summary>
+    /// 集控轮询间隔（秒）。
+    /// <para>
+    /// 修复 P0-7：原为 5 秒，网络抖动时单源重试最长约 11 秒，13 个源必然并发堆积。
+    /// 提到 30 秒后，单次 Reload 有充足时间完成，且减少无谓的服务器压力。
+    /// </para>
+    /// </summary>
+    private const int ManagementReloadIntervalSeconds = 30;
 
     /// <summary>
     /// 集控调课与策略拉取等操作的内存日志队列。保留最近 <see cref="MaxLogEntries"/> 条。
@@ -354,37 +395,96 @@ public class ManagementService : ObservableRecipient, IManagementService
 
         Logger.LogInformation("正在初始化集控");
 
-        // 启动定时刷新（每 5 秒，同时上报设备状态）
-        _ = Task.Run(async () =>
+        // 修复 P0-7：为轮询循环创建 CancellationTokenSource，ExitManagementAsync 时 Cancel 可立即停止。
+        // 复用旧的 CTS（如有）会先 Cancel 旧循环，避免 P1-19「加入集控后两个轮询循环同时跑」。
+        _managementCts?.Cancel();
+        _managementCts?.Dispose();
+        _managementCts = new CancellationTokenSource();
+        var ct = _managementCts.Token;
+
+        // 修复 P1-19：幂等保护——若已有轮询循环在运行，跳过启动新循环。
+        // 上面已 Cancel 旧 CTS，旧循环会在下一轮检查 ct.IsCancellationRequested 时退出并重置标志。
+        // 但若旧循环恰好卡在 ReloadManagementAsync（持 _reloadLock 等待），退出会有延迟，
+        // 此时直接启动新循环会出现两个循环同时跑。用 _isPollingLoopRunning 标志确保唯一性。
+        if (_isPollingLoopRunning)
         {
-            while (IsManagementEnabled)
+            Logger.LogWarning("集控轮询循环已在运行，跳过启动新循环（P1-19 幂等保护）");
+        }
+        else
+        {
+            _isPollingLoopRunning = true;
+            // 启动定时刷新（每 30 秒，同时上报设备状态）
+            // 修复 P0-7：间隔从 5 秒提到 30 秒，避免单源重试 11 秒导致并发堆积。
+            _ = Task.Run(async () =>
             {
-                await Task.Delay(TimeSpan.FromSeconds(5));
-                if (!IsManagementEnabled) break;
                 try
                 {
-                    await ReloadManagementAsync();
+                    while (IsManagementEnabled && !ct.IsCancellationRequested)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(ManagementReloadIntervalSeconds), ct);
+                        if (!IsManagementEnabled || ct.IsCancellationRequested) break;
+                        try
+                        {
+                            await ReloadManagementAsync();
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogError(ex, "定时刷新集控配置失败");
+                        }
+                        // 上报设备当前状态（当前课程/课间、时间段、剩余时间）
+                        try
+                        {
+                            await ReportDeviceStatusAsync();
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogWarning(ex, "定时上报设备状态失败");
+                        }
+                    }
                 }
-                catch (Exception ex)
+                catch (OperationCanceledException)
                 {
-                    Logger.LogError(ex, "定时刷新集控配置失败");
+                    // 正常退出路径，不记日志
                 }
-                // 上报设备当前状态（当前课程/课间、时间段、剩余时间）
-                try
+                finally
                 {
-                    await ReportDeviceStatusAsync();
+                    // 修复 P1-19：轮询循环退出时重置标志，允许下次 SetupManagement 启动新循环。
+                    _isPollingLoopRunning = false;
                 }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(ex, "定时上报设备状态失败");
-                }
-            }
-        });
+            }, ct);
+        }
 
         return await ReloadManagementAsync();
     }
 
     public async Task<bool> ReloadManagementAsync()
+    {
+        // 修复 P0-7：串行化 Reload，避免 5 秒轮询、DataUpdated 命令、SetupManagement 首次拉取
+        // 三个入口并发写同一批 JSON 文件与 SettingsService.Settings。
+        // 用 WaitAsync 而非 try/finally 之外的写法，保证异常路径也能 Release。
+        await _reloadLock.WaitAsync();
+        try
+        {
+            return await ReloadManagementCoreAsync();
+        }
+        finally
+        {
+            _reloadLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// ReloadManagementAsync 的实际实现，已由 <see cref="_reloadLock"/> 串行化保护。
+    /// </summary>
+    private async Task<bool> ReloadManagementCoreAsync()
     {
         Logger.LogInformation("正在重载集控配置");
         if (Connection == null)
@@ -392,50 +492,139 @@ public class ManagementService : ObservableRecipient, IManagementService
             return true;
         }
 
-        //Load old config
-        ManagementManifest oldManifest = Manifest;
-        ManagementPolicy oldPolicy = Policy;
-        ManagementCredentialConfig oldCredential = CredentialConfig;
-        ManagementVersions oldVersions = Versions;
+        // 修复 P0-8：去掉无效的引用回滚（oldManifest/oldPolicy/oldCredential/oldVersions 是引用赋值，
+        // catch 里回滚的是同一个对象，完全无效）。改为「先全部拉取成功再统一提交」模式：
+        // 1) 先拉 manifest；
+        // 2) 逐源拉取到内存变量，任一源失败立即 throw，跳过所有保存操作；
+        // 3) 全部拉取成功后，再统一保存到磁盘、更新 Versions.json、应用设置。
+        // 这样中途失败时磁盘上仍是上一次完整状态，等下次轮询重试，不会留下半更新的残留。
 
         try
         {
-            Manifest = LoadConfig<ManagementManifest>(ManagementManifestPath);
-            Policy = LoadConfig<ManagementPolicy>(ManagementPolicyPath);
-            CredentialConfig = LoadConfig<ManagementCredentialConfig>(ManagementCredentialsPath);
-            Versions = LoadConfig<ManagementVersions>(ManagementVersionsPath);
-            Manifest = await Connection.GetManifest();
-            if (Manifest.CoreVersion.Major != IAppHost.CoreVersion.Major)
+            // === 阶段 1：拉 manifest（决定后续要拉哪些源） ===
+            var newManifest = await Connection.GetManifest();
+            if (newManifest.CoreVersion.Major != IAppHost.CoreVersion.Major)
             {
                 await CommonTaskDialogs.ShowDialog("集控核心版本不兼容",
-                    $"您正在核心版本主版本号（{IAppHost.CoreVersion}）与集控数据核心版本主版本号（{Manifest.CoreVersion}）不同的 ClassPixelPro 加入集控，这可能会导致您的数据损坏。请运行兼容贵组织集控服务的 ClassPixelPro 版本，或者联系您的管理员了解详细信息。");
+                    $"您正在核心版本主版本号（{IAppHost.CoreVersion}）与集控数据核心版本主版本号（{newManifest.CoreVersion}）不同的 ClassPixelPro 加入集控，这可能会导致您的数据损坏。请运行兼容贵组织集控服务的 ClassPixelPro 版本，或者联系您的管理员了解详细信息。");
                 return false;
             }
-            SaveConfig(ManagementManifestPath, Manifest);
+
+            // === 阶段 2：逐源拉取到内存，任一失败立即 throw（不写磁盘） ===
+            // 用可空局部变量保存拉取结果，null 表示该源无需更新。
+            ManagementPolicy? newPolicy = null;
+            ManagementCredentialConfig? newCredential = null;
+            Settings? newAppSettings = null;
+            object? newPlugins = null;
+            object? newTheme = null;
+            ComponentProfile? newComponentScheme = null;
+            ComponentProfile? newComponents = null; // 修复 P1-18：组件配置（ComponentsSource）纳入轮询
+            object? newTempClassPlan = null;
+            ManagementHelpInfo? newHelpInfo = null;
+            bool tempClassPlanDeleted = false; // manifest version==0 表示班主任已删除临时课表
+
             // 拉取策略
-            if (Manifest.PolicySource.IsNewerAndNotNull(Versions.PolicyVersion))
+            if (newManifest.PolicySource.IsNewerAndNotNull(Versions.PolicyVersion))
             {
-                Policy = await Connection.SaveJsonAsync<ManagementPolicy>(Manifest.PolicySource.Value!, ManagementPolicyPath);
-                Versions.PolicyVersion = Manifest.PolicySource.Version;
+                newPolicy = await Connection.GetJsonAsync<ManagementPolicy>(newManifest.PolicySource.Value!);
             }
             // 拉取凭据
-            if (Manifest.CredentialSource.IsNewerAndNotNull(Versions.CredentialVersion))
+            if (newManifest.CredentialSource.IsNewerAndNotNull(Versions.CredentialVersion))
             {
-                CredentialConfig = await Connection.SaveJsonAsync<ManagementCredentialConfig>(Manifest.CredentialSource.Value!, ManagementCredentialsPath);
-                Versions.CredentialVersion = Manifest.CredentialSource.Version;
+                newCredential = await Connection.GetJsonAsync<ManagementCredentialConfig>(newManifest.CredentialSource.Value!);
             }
             // 拉取应用设置
-            if (Manifest.AppSettingsSource.IsNewerAndNotNull(Versions.AppSettingsVersion))
+            if (newManifest.AppSettingsSource.IsNewerAndNotNull(Versions.AppSettingsVersion))
             {
                 Logger.LogInformation("拉取集控应用设置");
-                await Connection.SaveJsonAsync<Settings>(Manifest.AppSettingsSource.Value!, ManagementAppSettingsPath);
-                Versions.AppSettingsVersion = Manifest.AppSettingsSource.Version;
+                newAppSettings = await Connection.GetJsonAsync<Settings>(newManifest.AppSettingsSource.Value!);
+            }
+            // 拉取插件配置
+            if (newManifest.PluginsSource.IsNewerAndNotNull(Versions.PluginsVersion))
+            {
+                Logger.LogInformation("拉取集控插件配置");
+                newPlugins = await Connection.GetJsonAsync<object>(newManifest.PluginsSource.Value!);
+            }
+            // 拉取主题配置
+            if (newManifest.ThemeSource.IsNewerAndNotNull(Versions.ThemeVersion))
+            {
+                Logger.LogInformation("拉取集控主题配置");
+                newTheme = await Connection.GetJsonAsync<object>(newManifest.ThemeSource.Value!);
+            }
+            // 修复 P1-18：拉取组件配置（ComponentsSource）。
+            // 原实现只在 ComponentsService.LoadManagementConfig 中处理，ReloadManagementAsync 13 个源里没有它，
+            // 服务端改了组件配置客户端必须重启才生效。纳入轮询后可定时同步。
+            if (newManifest.ComponentsSource.IsNewerAndNotNull(Versions.ComponentsVersion))
+            {
+                Logger.LogInformation("拉取集控组件配置");
+                newComponents = await Connection.GetJsonAsync<ComponentProfile>(newManifest.ComponentsSource.Value!);
+            }
+            // 拉取组件方案
+            if (newManifest.ComponentSchemeSource.HasValue &&
+                newManifest.ComponentSchemeSource.Value.IsNewerAndNotNull(Versions.ComponentSchemeVersion))
+            {
+                Logger.LogInformation("拉取集控组件方案");
+                newComponentScheme = await Connection.GetJsonAsync<ComponentProfile>(newManifest.ComponentSchemeSource.Value.Value!);
+            }
+            // 拉取临时调课课表
+            if (newManifest.TempClassPlanSource.HasValue &&
+                newManifest.TempClassPlanSource.Value.IsNewerAndNotNull(Versions.TempClassPlanVersion))
+            {
+                Logger.LogInformation("拉取集控临时调课课表");
+                newTempClassPlan = await Connection.GetJsonAsync<object>(newManifest.TempClassPlanSource.Value.Value!);
+            }
+            else if (newManifest.TempClassPlanSource.HasValue &&
+                     newManifest.TempClassPlanSource.Value.Version == 0 &&
+                     Versions.TempClassPlanVersion > 0)
+            {
+                // 班主任端已删除临时课表（后端 version 回到 0），稍后清除本地 overlay 恢复原课表
+                tempClassPlanDeleted = true;
+            }
+            // 拉取帮助信息
+            if (newManifest.HelpInfoSource.HasValue &&
+                newManifest.HelpInfoSource.Value.IsNewerAndNotNull(Versions.HelpInfoVersion))
+            {
+                Logger.LogInformation("拉取集控帮助信息");
+                newHelpInfo = await Connection.GetJsonAsync<ManagementHelpInfo>(newManifest.HelpInfoSource.Value.Value!);
+            }
+
+            // 课表/时间表/科目由 ProfileService.MergeManagementProfileAsync 负责合并，
+            // 它内部也有「先拉后存」逻辑，此处只判断是否需要触发合并。
+            bool needProfileMerge =
+                newManifest.ClassPlanSource.IsNewerAndNotNull(Versions.ClassPlanVersion) ||
+                newManifest.TimeLayoutSource.IsNewerAndNotNull(Versions.TimeLayoutVersion) ||
+                newManifest.SubjectsSource.IsNewerAndNotNull(Versions.SubjectsVersion);
+
+            // === 阶段 3：全部拉取成功，统一提交到磁盘与内存 ===
+            // 此后任何失败都属于「应用阶段失败」，不应回滚已写的磁盘文件
+            // （原实现的引用回滚是无效代码，这里也不再尝试回滚，让下次轮询重试即可）。
+
+            Manifest = newManifest;
+            SaveConfig(ManagementManifestPath, Manifest);
+
+            if (newPolicy != null)
+            {
+                Policy = newPolicy;
+                SaveConfig(ManagementPolicyPath, Policy);
+                Versions.PolicyVersion = newManifest.PolicySource.Version;
+            }
+            if (newCredential != null)
+            {
+                CredentialConfig = newCredential;
+                SaveConfig(ManagementCredentialsPath, CredentialConfig);
+                Versions.CredentialVersion = newManifest.CredentialSource.Version;
+            }
+            if (newAppSettings != null)
+            {
+                SaveConfig(ManagementAppSettingsPath, newAppSettings);
+                Versions.AppSettingsVersion = newManifest.AppSettingsSource.Version;
                 // 应用设置到 SettingsService
                 try
                 {
                     var settingsService = IAppHost.GetService<SettingsService>();
-                    var appSettings = LoadConfig<Settings>(ManagementAppSettingsPath);
-                    settingsService.Settings = appSettings;
+                    // 修复 P1-13：使用 ReplaceSettings 统一处理 PropertyChanged 订阅/取消订阅，
+                    // 避免旧对象仍能触发 SettingsChanged 而新对象修改不落盘。
+                    settingsService.ReplaceSettings(newAppSettings);
                     Logger.LogTrace("应用集控设置成功");
                 }
                 catch (Exception exAppSettings)
@@ -443,41 +632,49 @@ public class ManagementService : ObservableRecipient, IManagementService
                     Logger.LogError(exAppSettings, "应用集控设置失败");
                 }
             }
-            // 拉取插件配置
-            if (Manifest.PluginsSource.IsNewerAndNotNull(Versions.PluginsVersion))
+            if (newPlugins != null)
             {
-                Logger.LogInformation("拉取集控插件配置");
-                await Connection.SaveJsonAsync<object>(Manifest.PluginsSource.Value!, ManagementPluginsPath);
-                Versions.PluginsVersion = Manifest.PluginsSource.Version;
+                SaveConfig(ManagementPluginsPath, newPlugins);
+                Versions.PluginsVersion = newManifest.PluginsSource.Version;
             }
-            // 拉取主题配置
-            if (Manifest.ThemeSource.IsNewerAndNotNull(Versions.ThemeVersion))
+            if (newTheme != null)
             {
-                Logger.LogInformation("拉取集控主题配置");
-                await Connection.SaveJsonAsync<object>(Manifest.ThemeSource.Value!, ManagementThemePath);
-                Versions.ThemeVersion = Manifest.ThemeSource.Version;
+                SaveConfig(ManagementThemePath, newTheme);
+                Versions.ThemeVersion = newManifest.ThemeSource.Version;
             }
-            // 拉取组件方案
-            if (Manifest.ComponentSchemeSource.HasValue &&
-                Manifest.ComponentSchemeSource.Value.IsNewerAndNotNull(Versions.ComponentSchemeVersion))
+            // 修复 P1-18：应用组件配置（ComponentsSource）。
+            // 原实现 ReloadManagementAsync 不处理 ComponentsSource，服务端改了组件配置客户端必须重启才生效。
+            // 纳入轮询后，定时拉取并应用，同时通过 SaveSettings() 落盘版本号避免重复拉取。
+            if (newComponents != null)
             {
-                Logger.LogInformation("拉取集控组件方案");
-                await Connection.SaveJsonAsync<object>(Manifest.ComponentSchemeSource.Value.Value!, ManagementComponentSchemePath);
-                Versions.ComponentSchemeVersion = Manifest.ComponentSchemeSource.Value.Version;
+                SaveConfig(ManagementComponentsPath, newComponents);
+                Versions.ComponentsVersion = newManifest.ComponentsSource.Version;
+                // 应用组件配置到 ComponentsService
+                try
+                {
+                    var componentsService = IAppHost.GetService<IComponentsService>();
+                    componentsService.CurrentComponents = newComponents;
+                    Logger.LogTrace("应用集控组件配置成功");
+                }
+                catch (Exception exComponents)
+                {
+                    Logger.LogError(exComponents, "应用集控组件配置失败");
+                }
+            }
+            if (newComponentScheme != null)
+            {
+                SaveConfig(ManagementComponentSchemePath, newComponentScheme);
+                Versions.ComponentSchemeVersion = newManifest.ComponentSchemeSource.Value.Version;
                 // 应用组件方案
                 try
                 {
                     var componentsService = IAppHost.GetService<IComponentsService>();
-                    // 读取保存的组件方案配置（ComponentProfile JSON）
-                    var scheme = LoadConfig<ComponentProfile>(ManagementComponentSchemePath);
-                    // 将集控组件方案写入组件配置目录，使用固定名称 "Management"，
-                    // 便于用户在编辑模式下查看与切换；随后刷新方案列表并立即应用。
                     const string managementSchemeName = "Management";
                     var schemePath = Path.Combine(ComponentsService.ComponentSettingsPath,
                         managementSchemeName + ".json");
-                    SaveConfig(schemePath, scheme);
+                    SaveConfig(schemePath, newComponentScheme);
                     componentsService.RefreshConfigs();
-                    componentsService.CurrentComponents = scheme;
+                    componentsService.CurrentComponents = newComponentScheme;
                     Logger.LogTrace("应用集控组件方案成功");
                 }
                 catch (Exception exComponentScheme)
@@ -485,59 +682,33 @@ public class ManagementService : ObservableRecipient, IManagementService
                     Logger.LogError(exComponentScheme, "应用集控组件方案失败");
                 }
             }
-            // 拉取临时调课课表
-            if (Manifest.TempClassPlanSource.HasValue &&
-                Manifest.TempClassPlanSource.Value.IsNewerAndNotNull(Versions.TempClassPlanVersion))
+            if (newTempClassPlan != null)
             {
-                Logger.LogInformation("拉取集控临时调课课表");
-                try
+                SaveConfig(ManagementTempClassPlanPath, newTempClassPlan);
+                Versions.TempClassPlanVersion = newManifest.TempClassPlanSource.Value.Version;
+                // 应用临时课表到当前档案的临时层
+                var applied = await ApplyTempClassPlanAsync();
+                if (applied)
                 {
-                    await Connection.SaveJsonAsync<object>(Manifest.TempClassPlanSource.Value.Value!, ManagementTempClassPlanPath);
-                    Versions.TempClassPlanVersion = Manifest.TempClassPlanSource.Value.Version;
-                    // 应用临时课表到当前档案的临时层
-                    var applied = await ApplyTempClassPlanAsync();
-                    if (applied)
-                    {
-                        Logger.LogInformation("已拉取并应用集控临时调课课表，版本 {Version}", Versions.TempClassPlanVersion);
-                    }
-                }
-                catch (Exception exTempClassPlan)
-                {
-                    Logger.LogError(exTempClassPlan, "应用集控临时调课课表失败");
+                    Logger.LogInformation("已拉取并应用集控临时调课课表，版本 {Version}", Versions.TempClassPlanVersion);
                 }
             }
-            else if (Manifest.TempClassPlanSource.HasValue &&
-                     Manifest.TempClassPlanSource.Value.Version == 0 &&
-                     Versions.TempClassPlanVersion > 0)
+            else if (tempClassPlanDeleted)
             {
-                // 班主任端已删除临时课表（后端 version 回到 0），清除本地 overlay 恢复原课表
                 Logger.LogInformation("集控临时调课课表已被删除（manifest version=0），清除本地 overlay");
                 await ClearTempClassPlanOverlayAsync();
                 Versions.TempClassPlanVersion = 0;
             }
-            // 拉取帮助信息
-            if (Manifest.HelpInfoSource.HasValue &&
-                Manifest.HelpInfoSource.Value.IsNewerAndNotNull(Versions.HelpInfoVersion))
+            if (newHelpInfo != null)
             {
-                Logger.LogInformation("拉取集控帮助信息");
-                try
-                {
-                    HelpInfo = await Connection.SaveJsonAsync<ManagementHelpInfo>(Manifest.HelpInfoSource.Value.Value!, ManagementHelpInfoPath);
-                    Versions.HelpInfoVersion = Manifest.HelpInfoSource.Value.Version;
-                    Logger.LogInformation("已拉取集控帮助信息，版本 {Version}", Versions.HelpInfoVersion);
-                }
-                catch (Exception exHelpInfo)
-                {
-                    Logger.LogError(exHelpInfo, "拉取集控帮助信息失败");
-                }
+                HelpInfo = newHelpInfo;
+                SaveConfig(ManagementHelpInfoPath, newHelpInfo);
+                Versions.HelpInfoVersion = newManifest.HelpInfoSource.Value.Version;
+                Logger.LogInformation("已拉取集控帮助信息，版本 {Version}", Versions.HelpInfoVersion);
             }
-            // 拉取课表/时间表/科目（classplan/timelayout/subjects）
-            // 这些内容类型由 ProfileService.MergeManagementProfileAsync 负责合并到当前档案。
-            // 首次启动时在 LoadProfileAsync 中调用一次；此处为定时刷新场景：
-            // 班主任端修改课表后 version 升级，定时刷新检测到 IsNewerAndNotNull 即触发合并。
-            if (Manifest.ClassPlanSource.IsNewerAndNotNull(Versions.ClassPlanVersion) ||
-                Manifest.TimeLayoutSource.IsNewerAndNotNull(Versions.TimeLayoutVersion) ||
-                Manifest.SubjectsSource.IsNewerAndNotNull(Versions.SubjectsVersion))
+
+            // 课表/时间表/科目合并（ProfileService 内部也是「先拉后存」）
+            if (needProfileMerge)
             {
                 Logger.LogInformation("检测到集控课表/时间表/科目有更新，触发档案合并");
                 try
@@ -557,6 +728,7 @@ public class ManagementService : ObservableRecipient, IManagementService
                     Logger.LogError(exProfileMerge, "集控课表/时间表/科目合并失败");
                 }
             }
+
             // 保存版本号
             SaveSettings();
 
@@ -578,10 +750,9 @@ public class ManagementService : ObservableRecipient, IManagementService
                 AppBase.Current.Restart();
                 return false;
             }
-            Manifest = oldManifest;
-            Policy = oldPolicy;
-            CredentialConfig = oldCredential;
-            Versions = oldVersions;
+            // 修复 P0-8：去掉无效的引用回滚（oldManifest/oldPolicy/oldCredential/oldVersions）。
+            // 阶段 2 任一源失败时磁盘尚未写入，无需回滚；阶段 3 失败时部分文件已更新，
+            // 但下次轮询会重试拉取并覆盖，且版本号未 SaveSettings 不会推进，重试是安全的。
             Logger.LogError(e, "拉取集控清单与策略失败");
         }
 
@@ -864,6 +1035,21 @@ public class ManagementService : ObservableRecipient, IManagementService
             Logger.LogInformation("已应用集控临时调课课表到临时层：{OverlayId}（源课表：{SourceId}）",
                 overlayId, overlayCp.OverlaySourceId);
             AddLog("应用临时课表", $"源课表: {overlayCp.OverlaySourceId}", true);
+
+            // 修复 P1-16：原实现只改内存 Profile，没有调用 SaveProfile，崩溃/强杀后状态不一致
+            // （磁盘上没有 overlay，但 ManagementTempClassPlanPath 仍存在，下次启动会重新应用，
+            // 但若期间班主任端删除了临时课表，manifest version=0，客户端却仍保留旧 overlay）。
+            // 在此处落盘确保磁盘与内存一致。
+            try
+            {
+                profileService.SaveProfile();
+                Logger.LogTrace("已保存档案（应用临时调课后）");
+            }
+            catch (Exception exSave)
+            {
+                Logger.LogWarning(exSave, "保存档案失败（应用临时调课后，内存已更新但磁盘未同步）");
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -984,6 +1170,20 @@ public class ManagementService : ObservableRecipient, IManagementService
             }
 
             AddLog("清除临时课表", $"overlay: {oldOverlayId}, 恢复: {restoreClassPlanId}", true);
+
+            // 修复 P1-16：原实现只改内存 Profile，没有调用 SaveProfile，崩溃/强杀后状态不一致
+            // （磁盘上仍有 overlay，下次启动会看到 overlay 但 ManagementTempClassPlanPath 已删除，
+            // 且若 manifest version 仍 >0 不会重新触发 ClearTempClassPlanOverlayAsync）。
+            // 在此处落盘确保磁盘与内存一致。
+            try
+            {
+                profileService.SaveProfile();
+                Logger.LogTrace("已保存档案（清除临时调课后）");
+            }
+            catch (Exception exSave)
+            {
+                Logger.LogWarning(exSave, "保存档案失败（清除临时调课后，内存已更新但磁盘未同步）");
+            }
         }
         catch (Exception ex)
         {
@@ -1382,6 +1582,51 @@ public class ManagementService : ObservableRecipient, IManagementService
         var result = await dialog.ShowAsync();
         if (result?.Equals(true) != true)
             return;
+
+        // 修复 P0-7：取消轮询循环，避免退出过程中仍在写集控文件。
+        try
+        {
+            _managementCts?.Cancel();
+        }
+        catch (Exception exCancel)
+        {
+            Logger.LogWarning(exCancel, "取消集控轮询循环失败（不阻塞退出流程）");
+        }
+
+        // 修复 P1-20：清除临时调课 overlay，避免退出后档案仍残留 overlay 课表。
+        // ClearTempClassPlanOverlayAsync 会同时删除 ManagementTempClassPlanPath 缓存文件并落盘档案。
+        try
+        {
+            await ClearTempClassPlanOverlayAsync();
+        }
+        catch (Exception exClearOverlay)
+        {
+            Logger.LogWarning(exClearOverlay, "清除临时调课 overlay 失败（不阻塞退出流程）");
+        }
+
+        // 修复 P1-20：删除集控下发的残留文件，避免退出后下次以非集控模式启动时仍读到旧的下发配置。
+        // 这些文件在加入集控时由 ReloadManagementAsync 写入，退出集控后不应再生效。
+        foreach (var residualFile in new[]
+        {
+            ManagementTempClassPlanPath,
+            ManagementAppSettingsPath,
+            ManagementThemePath,
+            ManagementPluginsPath,
+        })
+        {
+            try
+            {
+                if (File.Exists(residualFile))
+                {
+                    File.Delete(residualFile);
+                    Logger.LogInformation("已删除集控残留文件：{Path}", residualFile);
+                }
+            }
+            catch (Exception exDelete)
+            {
+                Logger.LogWarning(exDelete, "删除集控残留文件失败：{Path}", residualFile);
+            }
+        }
 
         // 通知后端设备离线
         try
