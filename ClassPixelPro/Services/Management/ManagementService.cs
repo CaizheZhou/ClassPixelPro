@@ -354,7 +354,7 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// 从 ManifestUrlTemplate 解析出集控 API base URL。
     /// 模板形如：https://example.com/api/mgmt/{orgId}/serverless/manifest?cuid={cuid}&amp;id={id}
     /// </summary>
-    private string? GetManagementBaseUrl()
+    public string? GetManagementBaseUrl()
     {
         var template = Settings.ManifestUrlTemplate;
         if (string.IsNullOrWhiteSpace(template)) return null;

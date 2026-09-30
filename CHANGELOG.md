@@ -4,6 +4,23 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.18] - 2026-10-01
+
+客户端配置模式选择功能版本。客户端集控设置页面新增配置模式下拉框，用户可自行切换全局/自主选配/非课表，切换后实时同步到服务端。
+
+### ✨ 新增功能
+
+- **客户端配置模式选择**：客户端集控设置页面新增配置模式下拉框，用户可自行切换全局/自主选配/非课表
+  - 选「自主选配」时显示选配池配置列表供用户选择
+  - 切换后调用 API 实时同步到服务端，无需等待下次轮询
+  - 新增客户端可用 API：GET /api/v1/client/:cuid/config-pool + PUT /api/v1/client/:cuid/config-mode
+  - IManagementService 接口新增 GetManagementBaseUrl() 方法
+
+### 🚀 优化
+
+- ManagementSettingsPage 配置来源卡片从只读改为可选择
+- 选配池配置选择后显示配置名称、版本和描述信息
+
 ## [2.1.2.17] - 2026-10-01
 
 集控配置三种模式架构版本。新增「全局配置」「自主选配」「非课表配置」三种模式，由后台决定每台设备使用哪种模式；客户端集控设置页面显示当前配置来源名称和版本。

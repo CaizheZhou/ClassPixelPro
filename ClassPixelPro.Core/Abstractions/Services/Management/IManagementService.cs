@@ -88,6 +88,12 @@ public interface IManagementService
     /// 用于在设置页面向用户展示集控对客户端课表的操作历史。
     /// </summary>
     IReadOnlyList<ManagementLogEntry> ManagementLogs { get; }
+
+    /// <summary>
+    /// 从 ManifestUrlTemplate 解析出集控 API base URL。
+    /// 用于客户端直接调用服务端 REST API（如选配池、配置模式等）。
+    /// </summary>
+    string? GetManagementBaseUrl();
 }
 
 /// <summary>

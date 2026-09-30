@@ -117,26 +117,50 @@
                 </controls1:SettingsExpanderItem>
             </StackPanel>
 
-            <!-- 配置来源信息：显示当前设备使用的配置模式与选配池配置名称/版本 -->
+            <!-- 配置模式选择：用户可切换全局/自主选配/非课表 -->
             <StackPanel Classes="cardContainer"
                         IsVisible="{Binding ManagementService.IsManagementEnabled}">
                 <controls1:SettingsExpanderItem>
                     <StackPanel Spacing="8">
-                        <TextBlock Text="当前配置来源" FontWeight="Bold"/>
-                        <StackPanel Spacing="4">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="模式：" />
-                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceLabel}" FontWeight="SemiBold" />
+                        <TextBlock Text="配置模式" FontWeight="Bold"/>
+                        <TextBlock Text="选择本设备使用的集控配置模式。切换后自动同步到服务端。"
+                                   FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+
+                        <!-- 模式选择下拉框 -->
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0 8 0 0">
+                            <TextBlock Text="模式：" VerticalAlignment="Center" />
+                            <ComboBox x:Name="ConfigModeComboBox"
+                                      SelectedIndex="{Binding ConfigModeSelectedIndex, Mode=TwoWay}"
+                                      SelectionChanged="ConfigModeComboBox_SelectionChanged"
+                                      MinWidth="160">
+                                <ComboBoxItem Content="全局配置" />
+                                <ComboBoxItem Content="自主选配" />
+                                <ComboBoxItem Content="非课表配置" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- 选配池配置选择（仅 pool 模式时显示） -->
+                        <StackPanel x:Name="PoolConfigPanel" Spacing="8" IsVisible="False">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="选配配置：" VerticalAlignment="Center" />
+                                <ComboBox x:Name="PoolConfigComboBox"
+                                          SelectionChanged="PoolConfigComboBox_SelectionChanged"
+                                          MinWidth="240" />
                             </StackPanel>
+                            <TextBlock x:Name="PoolConfigInfo"
+                                       FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                       IsVisible="False" />
+                        </StackPanel>
+
+                        <!-- 当前配置来源信息 -->
+                        <StackPanel Spacing="4" Margin="0 8 0 0">
                             <StackPanel Orientation="Horizontal" Spacing="6"
                                         IsVisible="{Binding ManagementService.Manifest.HasConfigSourceName}">
-                                <TextBlock Text="配置名称：" />
-                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceName}" FontWeight="SemiBold" />
-                                <TextBlock Text=" v" />
-                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceVersion}" />
+                                <TextBlock Text="当前配置：" FontSize="12" Opacity="0.8" />
+                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceName}" FontSize="12" FontWeight="SemiBold" />
+                                <TextBlock Text=" v" FontSize="12" />
+                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceVersion}" FontSize="12" />
                             </StackPanel>
-                            <TextBlock Text="配置模式由后台管理员在设备管理中设置。"
-                                       FontSize="12" Opacity="0.6" Margin="0 4 0 0" TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
                 </controls1:SettingsExpanderItem>
