@@ -86,4 +86,29 @@ public class ManagementManifest
     /// 集控信息的核心版本
     /// </summary>
     public Version CoreVersion { get; set; } = new Version(0, 0, 0, 0);
+
+    /// <summary>
+    /// 设备配置模式（global/pool/no_classplan），由服务端根据设备设置决定。
+    /// </summary>
+    public string ConfigMode { get; set; } = "global";
+
+    /// <summary>
+    /// 配置来源标签（"全局"/"选配"/"非课表"），用于 UI 显示。
+    /// </summary>
+    public string ConfigSourceLabel { get; set; } = "全局";
+
+    /// <summary>
+    /// 选配池配置名称（仅 pool 模式有值）。
+    /// </summary>
+    public string? ConfigSourceName { get; set; }
+
+    /// <summary>
+    /// 选配池配置版本号（仅 pool 模式有值）。
+    /// </summary>
+    public int? ConfigSourceVersion { get; set; }
+
+    /// <summary>
+    /// 是否存在选配池配置名称（仅 pool 模式为 true）。用于 UI 绑定 IsVisible。
+    /// </summary>
+    public bool HasConfigSourceName => !string.IsNullOrEmpty(ConfigSourceName);
 }

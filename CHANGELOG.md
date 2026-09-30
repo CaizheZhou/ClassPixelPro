@@ -4,6 +4,27 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.17] - 2026-10-01
+
+集控配置三种模式架构版本。新增「全局配置」「自主选配」「非课表配置」三种模式，由后台决定每台设备使用哪种模式；客户端集控设置页面显示当前配置来源名称和版本。
+
+### ✨ 新增功能
+
+- **集控配置三种模式架构**：新增「全局配置」「自主选配」「非课表配置」三种模式，后台决定每台设备使用哪种模式
+  - 新建选配池（config_pool）表，支持完整 .cidata 整合包的版本管理
+  - mgmt_devices 表新增 config_mode 和 pool_config_id 字段
+  - 服务端新增选配池 CRUD API + 设备模式设置 API
+  - manifest 和 content 拉取接口支持三种模式逻辑
+  - 后台管理端新增「选配池」标签页，支持创建/编辑/删除/导入.cidata配置
+  - 设备列表新增配置模式设置（全局/自主选配/非课表）
+  - 客户端集控设置页面显示当前配置来源名称和版本
+- **清理所有集控数据**：清空 mgmt_content、mgmt_devices、mgmt_audit_logs、mgmt_orgs 表，完全从零开始
+
+### 🚀 优化
+
+- ManagementManifest 模型新增 ConfigMode/ConfigSourceLabel/ConfigSourceName/ConfigSourceVersion 字段
+- ManagementService 在 manifest 更新时触发 PropertyChanged 通知 UI 刷新
+
 ## [2.1.2.16] - 2026-09-30
 
 集控配置预览功能版本。客户端和管理端新增配置内容友好预览，无需拉取即可查看当前配置详情。

@@ -601,6 +601,9 @@ public class ManagementService : ObservableRecipient, IManagementService
 
             Manifest = newManifest;
             SaveConfig(ManagementManifestPath, Manifest);
+            // 通知 UI 刷新所有绑定到 Manifest.* 的属性（如配置来源信息）。
+            // Manifest 是整体替换，仅赋值不会触发 PropertyChanged，需手动通知。
+            OnPropertyChanged(nameof(Manifest));
 
             if (newPolicy != null)
             {

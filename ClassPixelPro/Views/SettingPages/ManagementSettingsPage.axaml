@@ -117,6 +117,31 @@
                 </controls1:SettingsExpanderItem>
             </StackPanel>
 
+            <!-- 配置来源信息：显示当前设备使用的配置模式与选配池配置名称/版本 -->
+            <StackPanel Classes="cardContainer"
+                        IsVisible="{Binding ManagementService.IsManagementEnabled}">
+                <controls1:SettingsExpanderItem>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="当前配置来源" FontWeight="Bold"/>
+                        <StackPanel Spacing="4">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="模式：" />
+                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceLabel}" FontWeight="SemiBold" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                        IsVisible="{Binding ManagementService.Manifest.HasConfigSourceName}">
+                                <TextBlock Text="配置名称：" />
+                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceName}" FontWeight="SemiBold" />
+                                <TextBlock Text=" v" />
+                                <TextBlock Text="{Binding ManagementService.Manifest.ConfigSourceVersion}" />
+                            </StackPanel>
+                            <TextBlock Text="配置模式由后台管理员在设备管理中设置。"
+                                       FontSize="12" Opacity="0.6" Margin="0 4 0 0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </controls1:SettingsExpanderItem>
+            </StackPanel>
+
             <!-- 集控策略同步：可选择拉取特定配置 -->
             <StackPanel Classes="cardContainer"
                         IsVisible="{Binding ManagementService.IsManagementEnabled}">
