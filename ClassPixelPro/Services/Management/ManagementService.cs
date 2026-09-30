@@ -185,6 +185,12 @@ public class ManagementService : ObservableRecipient, IManagementService
         AuthorizeService = authorizeService;
         Persist = LoadConfig<ManagementClientPersistConfig>(ManagementPersistConfigPath);
         Settings = LoadConfig<ManagementSettings>(ManagementSettingsPath);
+        // 修复：启动时从磁盘恢复版本号与上次清单。原实现只保存不加载，Versions 每次启动都是
+        // 全 0，SetupManagement 会把所有内容源判定为"有更新"而全量重新拉取（即使服务端没有任何
+        // 变化），这也是 Splash 迟迟不出现的主因（10+ 个串行网络请求阻塞在 Splash 之前）。
+        // 加载后：版本号与上次一致 → 启动只拉一次 manifest 做轻量检测，无更新则不拉内容。
+        Versions = LoadConfig<ManagementVersions>(ManagementVersionsPath);
+        Manifest = LoadConfig<ManagementManifest>(ManagementManifestPath);
 #if DEBUG
         if (App.ApplicationCommand.DisableManagement)
         {
