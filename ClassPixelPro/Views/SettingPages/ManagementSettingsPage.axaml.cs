@@ -409,47 +409,56 @@ public partial class ManagementSettingsPage : SettingsPageBase
     }
 
     /// <summary>
-    /// "立即重新拉取配置"按钮点击事件。
-    /// 调用 <see cref="Services.Management.ManagementService.ReloadManagementAsync"/> 重新拉取所有集控配置，
-    /// 完成后刷新选配池列表与 UI，并隐藏切换模式提示面板。
+    /// "重启应用"按钮点击事件。
+    /// 切换配置模式后，部分配置（如组件方案、主题等）需要重启进程才能完全生效。
+    /// 此处弹出确认对话框，确认后启动新进程并退出当前进程。
     /// </summary>
     private async void ReloadConfigButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (ReloadConfigButton != null)
+        // 弹出确认对话框：CommonTaskDialogs.ShowDialog 只有"确定"按钮，无法取消，
+        // 这里使用 TaskDialog 自定义"取消/确定"两个按钮，与 PullAndOverwriteAsync 中的确认对话框风格一致。
+        var confirmDialog = new TaskDialog
         {
-            ReloadConfigButton.IsEnabled = false;
-            ReloadConfigButton.Content = "🔄 正在重新拉取配置...";
-        }
+            Title = "ClassPixelPro",
+            SubHeader = "确认重启",
+            Content = "重启应用后将重新加载所有集控配置。确定要重启吗？",
+            Buttons =
+            {
+                TaskDialogButton.CancelButton,
+                new TaskDialogButton("确定", true)
+                {
+                    IsDefault = true
+                }
+            },
+            XamlRoot = AppBase.Current.GetRootWindow(),
+        };
+
+        var confirmResult = await confirmDialog.ShowAsync();
+        if (confirmResult?.Equals(true) != true) return;
 
         try
         {
-            // IManagementService 接口未暴露 Reload 方法，需通过具体类型调用。
-            // 项目中已有此类型转换模式（见 ButtonPullAll_OnClick 内的 concreteManagementService 用法）。
-            if (ManagementService is Services.Management.ManagementService concreteManagementService)
+            var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
+            var executablePath = currentProcess.MainModule?.FileName;
+            if (string.IsNullOrEmpty(executablePath))
             {
-                await concreteManagementService.ReloadManagementAsync();
+                await CommonTaskDialogs.ShowDialog("重启失败", "无法确定当前可执行文件路径。");
+                return;
             }
 
-            // 重新加载选配池列表并同步 UI
-            await LoadPoolConfigsAndSyncUI();
-
-            // 拉取完成，隐藏提示面板
-            if (ConfigModeChangedPanel != null)
+            // 启动新进程
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                ConfigModeChangedPanel.IsVisible = false;
-            }
+                FileName = executablePath,
+                UseShellExecute = true
+            });
+
+            // 退出当前进程
+            System.Environment.Exit(0);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"重新拉取配置失败: {ex.Message}");
-        }
-        finally
-        {
-            if (ReloadConfigButton != null)
-            {
-                ReloadConfigButton.IsEnabled = true;
-                ReloadConfigButton.Content = "🔄 立即重新拉取配置";
-            }
+            await CommonTaskDialogs.ShowDialog("重启失败", $"重启应用失败：{ex.Message}");
         }
     }
 
@@ -988,74 +997,78 @@ public partial class ManagementSettingsPage : SettingsPageBase
     #region 配置预览
 
     /// <summary>
-    /// 预览当前拉取到本地的课表缓存（ClassPlans.json）。
+    /// 预览当前实际使用的课表。
+    /// 从 <see cref="IProfileService.Profile"/> 读取（合并了集控配置和本地修改），
+    /// 这样能正确显示关联时间表名称和科目名称。
     /// </summary>
     private async void ButtonPreviewClassPlan_OnClick(object sender, RoutedEventArgs e)
     {
-        var path = Services.ProfileService.ManagementClassPlanPath;
-        if (!File.Exists(path))
-        {
-            await CommonTaskDialogs.ShowDialog("课表预览", "尚未拉取，请先拉取配置。");
-            return;
-        }
-
         try
         {
-            var profile = ConfigureFileHelper.LoadConfig<Profile>(path);
+            var profileService = IAppHost.TryGetService<IProfileService>();
+            var profile = profileService?.Profile;
+            if (profile == null || profile.ClassPlans.Count == 0)
+            {
+                await CommonTaskDialogs.ShowDialog("课表预览", "当前没有课表数据。");
+                return;
+            }
+
             var text = BuildClassPlanPreview(profile);
-            await ShowPreviewDialog("课表预览", text);
+            await ShowPreviewDialog("当前课表预览", text);
         }
         catch (Exception ex)
         {
-            await CommonTaskDialogs.ShowDialog("课表预览失败", $"读取课表缓存失败：{ex.Message}");
+            await CommonTaskDialogs.ShowDialog("课表预览失败", $"读取课表失败：{ex.Message}");
         }
     }
 
     /// <summary>
-    /// 预览当前拉取到本地的时间表缓存（TimeLayouts.json）。
+    /// 预览当前实际使用的时间表。
+    /// 从 <see cref="IProfileService.Profile"/> 读取，确保展示的是当前生效的配置。
     /// </summary>
     private async void ButtonPreviewTimeLayout_OnClick(object sender, RoutedEventArgs e)
     {
-        var path = Services.ProfileService.ManagementTimeLayoutPath;
-        if (!File.Exists(path))
-        {
-            await CommonTaskDialogs.ShowDialog("时间表预览", "尚未拉取，请先拉取配置。");
-            return;
-        }
-
         try
         {
-            var profile = ConfigureFileHelper.LoadConfig<Profile>(path);
+            var profileService = IAppHost.TryGetService<IProfileService>();
+            var profile = profileService?.Profile;
+            if (profile == null || profile.TimeLayouts.Count == 0)
+            {
+                await CommonTaskDialogs.ShowDialog("时间表预览", "当前没有时间表数据。");
+                return;
+            }
+
             var text = BuildTimeLayoutPreview(profile);
-            await ShowPreviewDialog("时间表预览", text);
+            await ShowPreviewDialog("当前时间表预览", text);
         }
         catch (Exception ex)
         {
-            await CommonTaskDialogs.ShowDialog("时间表预览失败", $"读取时间表缓存失败：{ex.Message}");
+            await CommonTaskDialogs.ShowDialog("时间表预览失败", $"读取时间表失败：{ex.Message}");
         }
     }
 
     /// <summary>
-    /// 预览当前拉取到本地的科目缓存（Subjects.json）。
+    /// 预览当前实际使用的科目。
+    /// 从 <see cref="IProfileService.Profile"/> 读取，确保展示的是当前生效的配置。
     /// </summary>
     private async void ButtonPreviewSubjects_OnClick(object sender, RoutedEventArgs e)
     {
-        var path = Services.ProfileService.ManagementSubjectsPath;
-        if (!File.Exists(path))
-        {
-            await CommonTaskDialogs.ShowDialog("科目预览", "尚未拉取，请先拉取配置。");
-            return;
-        }
-
         try
         {
-            var profile = ConfigureFileHelper.LoadConfig<Profile>(path);
+            var profileService = IAppHost.TryGetService<IProfileService>();
+            var profile = profileService?.Profile;
+            if (profile == null || profile.Subjects.Count == 0)
+            {
+                await CommonTaskDialogs.ShowDialog("科目预览", "当前没有科目数据。");
+                return;
+            }
+
             var text = BuildSubjectsPreview(profile);
-            await ShowPreviewDialog("科目预览", text);
+            await ShowPreviewDialog("当前科目预览", text);
         }
         catch (Exception ex)
         {
-            await CommonTaskDialogs.ShowDialog("科目预览失败", $"读取科目缓存失败：{ex.Message}");
+            await CommonTaskDialogs.ShowDialog("科目预览失败", $"读取科目失败：{ex.Message}");
         }
     }
 
