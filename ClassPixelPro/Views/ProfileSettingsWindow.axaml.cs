@@ -844,12 +844,9 @@ public partial class ProfileSettingsWindow : MyWindow
         SentrySdk.Metrics.EmitCounter("views.ProfileSettingsWindow.timeLayout.duplicate", 1);
     }
     
-    private void ButtonDeleteTimeLayout_OnClick(object sender, RoutedEventArgs e)
+    private async void ButtonDeleteTimeLayout_OnClick(object sender, RoutedEventArgs e)
     {
         const string eventName = "views.ProfileSettingsWindow.timeLayout.remove";
-
-        // 每一次点击都先清掉上一次的错误提示。
-        SetDeleteTimeLayoutError(null);
 
         var logger = ViewModel.Logger;
         var selected = ViewModel.SelectedTimeLayout;
@@ -859,13 +856,34 @@ public partial class ProfileSettingsWindow : MyWindow
             "尝试删除时间表：Selected={Selected}，Profile.TimeLayouts.Count={DictCount}，ViewModel.TimeLayouts.List.Count={ListCount}",
             selected?.Name ?? "<null>", dict.Count, list.Count);
 
+        if (selected == null)
+        {
+            Fail("请先选择要删除的时间表。", "未选择时间表。");
+            return;
+        }
+
+        // 确认改用 TaskDialog 模态弹窗。原实现用 Flyout 内嵌确认——当按钮被折叠进命令栏
+        // 溢出菜单（"…"）时 Flyout 无法弹出，点击后处理器不执行、无任何提示（表现为"删不掉"）。
+        var confirmDialog = new TaskDialog
+        {
+            Title = "ClassPixelPro",
+            SubHeader = "删除时间表",
+            Content = $"要删除时间表「{selected.Name}」吗？此操作无法撤销。",
+            Buttons =
+            {
+                TaskDialogButton.CancelButton,
+                new TaskDialogButton("删除", true) { IsDefault = true }
+            },
+            XamlRoot = AppBase.Current.GetRootWindow(),
+        };
+        var confirmResult = await confirmDialog.ShowAsync();
+        if (confirmResult?.Equals(true) != true)
+        {
+            return;
+        }
+
         try
         {
-            if (selected == null)
-            {
-                Fail("请先选择要删除的时间表。", "未选择时间表。");
-                return;
-            }
 
             // 定位键：先在 UI 实际显示的列表里找，再在档案字典里找。
             // 修复：原实现只在 Profile.TimeLayouts 里按引用查找，一旦 ViewModel.TimeLayouts.List
@@ -943,18 +961,13 @@ public partial class ProfileSettingsWindow : MyWindow
                 new KeyValuePair<string, object>("Reason", ex.GetType().Name)
             ]
             );
-            SetDeleteTimeLayoutError("删除失败：" + ex.Message);
             this.ShowErrorToast("删除时间表失败：" + ex.Message);
-            FlyoutHelper.CloseAncestorFlyout(sender);
         }
-
-        return;
 
         // 失败时：就地显示原因 + 弹 Toast + 保持浮出层打开（否则用户看不到任何变化）。
         void Fail(string message, string reason)
         {
             logger.LogWarning("删除时间表被拦截：{}", reason);
-            SetDeleteTimeLayoutError(message);
             this.ShowWarningToast(message);
             SentrySdk.Metrics.EmitCounter(eventName, 1,
             [
@@ -965,21 +978,6 @@ public partial class ProfileSettingsWindow : MyWindow
         }
     }
 
-    /// <summary>
-    /// 在「删除时间表」的确认浮出层里就地显示（或清除）错误原因。
-    /// </summary>
-    private void SetDeleteTimeLayoutError(string? message)
-    {
-        var textBlock = TextBlockDeleteTimeLayoutError;
-        if (textBlock == null)
-        {
-            return;
-        }
-
-        textBlock.Text = message ?? "";
-        textBlock.IsVisible = !string.IsNullOrEmpty(message);
-    }
-    
     private void PushAddUndo(TimeLayoutItem item, TimeLayout layout)
     {
         var index = layout.Layouts.IndexOf(item);

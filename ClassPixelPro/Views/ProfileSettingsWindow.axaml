@@ -1244,37 +1244,20 @@
                                                                        ToolTip.Tip="重新排序该时间表中的时间点。"
                                                                        Label="刷新" />
                                             <controls:CommandBarSeparator />
+                                            <!-- 删除时间表：确认改用 ContentDialog 模态弹窗。
+                                                 原实现用 Flyout——当按钮被折叠进命令栏溢出菜单时 Flyout 无法弹出，
+                                                 表现为点击后无任何反应（处理器不执行、无提示）。 -->
+                                            <controls:CommandBarButton Click="ButtonDeleteTimeLayout_OnClick"
+                                                                       IconSource="{ci:FluentIconSource &#xE74D;}"
+                                                                       ToolTip.Tip="删除该时间表。"
+                                                                       IsEnabled="{Binding $parent[views:ProfileSettingsWindow].ViewModel.SelectedTimeLayout, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                                       Label="删除时间表" />
+                                            <controls:CommandBarSeparator />
                                             <controls:CommandBarButton Click="ButtonEditTimeLayoutInfo_OnClick"
                                                                        IconSource="{ci:FluentIconSource &#xE9E4;}"
                                                                        ToolTip.Tip="查看并编辑时间表的基本信息。"
                                                                        Label="时间表信息" />
-                                            <controls:CommandBarButton IconSource="{ci:FluentIconSource &#xE61D;}"
-                                                                       ToolTip.Tip="删除该时间表。"
-                                                                       IsEnabled="{Binding $parent[views:ProfileSettingsWindow].ViewModel.SelectedTimeLayout, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                                                       Label="删除时间表">
-                                                <controls:CommandBarButton.Flyout>
-                                                    <Flyout>
-                                                        <StackPanel Spacing="8" MaxWidth="300">
-                                                            <TextBlock FontWeight="Bold" TextWrapping="Wrap">
-                                                                <Run Text="要删除时间表" />
-                                                                <Run
-                                                                    Text="{Binding $parent[views:ProfileSettingsWindow].ViewModel.SelectedTimeLayout.Name}" />
-                                                                <Run Text="吗？" />
-                                                            </TextBlock>
-                                                            <TextBlock Text="此操作无法撤销。" />
-                                                            <!-- 删除失败时就地显示原因。原来只弹一条 5 秒 Toast，
-                                                                 用户注意力在命令栏上时会完全看不到，表现为"点删除没反应"。 -->
-                                                            <TextBlock x:Name="TextBlockDeleteTimeLayoutError"
-                                                                       TextWrapping="Wrap"
-                                                                       IsVisible="False"
-                                                                       Foreground="#D83B01" />
-                                                            <Button Content="删除" Classes="accent"
-                                                                    Click="ButtonDeleteTimeLayout_OnClick" />
-                                                        </StackPanel>
-                                                    </Flyout>
-                                                </controls:CommandBarButton.Flyout>
-                                            </controls:CommandBarButton>
-                                        </controls:CommandBar.PrimaryCommands>
+                                            </controls:CommandBar.PrimaryCommands>
                                     </controls:CommandBar>
                                 </ci:TutorialBarrier>
                                 
