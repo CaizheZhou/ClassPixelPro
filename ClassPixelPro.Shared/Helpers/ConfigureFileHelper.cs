@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using ClassPixelPro.Shared.Models;
@@ -204,7 +205,9 @@ public class ConfigureFileHelper
             Directory.CreateDirectory(dir);
 
         // 临时文件名带进程 ID 与 GUID，避免并发写时互相覆盖。
-        var temp = path + $".tmp.{Environment.ProcessId}.{Guid.NewGuid():N}";
+        // 注意：用 Process.GetCurrentProcess().Id 而非 Environment.ProcessId——后者是 .NET 5+ API，
+        // 本项目在 Windows 上多目标 net8.0;net472，net472 下没有该定义（CS0117）。
+        var temp = path + $".tmp.{Process.GetCurrentProcess().Id}.{Guid.NewGuid():N}";
         try
         {
             // 先把全部内容写到临时文件（FileMode.CreateNew 保证不会覆盖已存在的临时文件）。
@@ -219,7 +222,9 @@ public class ConfigureFileHelper
             }
             else
             {
-                File.Move(temp, path, overwrite: true);
+                // net472 没有 File.Move(src, dst, overwrite) 三参数重载；此处 temp 刚创建、
+                // path 不存在（上方已判），不存在被占用问题，直接 Move 即可。
+                File.Move(temp, path);
             }
         }
         finally
