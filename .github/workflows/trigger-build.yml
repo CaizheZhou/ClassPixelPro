@@ -1,0 +1,35 @@
+name: Trigger Public Build
+
+on:
+  push:
+    tags:
+      - '2.*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '要构建的 Tag（如 2.1.2.16）'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger public repo build
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
+        run: |
+          if [ -n "${{ inputs.tag_name }}" ]; then
+            VERSION="${{ inputs.tag_name }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          echo "触发公开仓库构建: ${VERSION}"
+          gh workflow run build-and-release.yml \
+            --repo CaizheZhou/ClassPixelPro-Releases \
+            --ref main \
+            -f tag_name="${VERSION}"
+          echo "✅ 已触发公开仓库构建"
