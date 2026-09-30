@@ -4,6 +4,51 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.15] - 2026-09-27
+
+集控「配置拉取覆盖」功能的深度修复版本。基于完整的代码审查与接口抓包分析，系统性修复了服务端、客户端、管理端三层共 30+ 个问题，涵盖功能失效根因（P0）、功能缺失（P1）和管理端交互安全（A1-A13）。请及时更新。
+
+### 🐛 Bug 修复
+
+- **【服务端】** 修复客户端「上报」与集控「下发」共用同一条 per-device 记录互相覆盖的问题（report 改为只写 `mgmt_devices.status_json`，不再污染 `mgmt_content`）
+- **【服务端】** 修复 `ver()` 版本查询优先返回 per-device 上报记录导致全局版本不可见的问题
+- **【服务端】** 修复内容拉取接口优先返回 per-device 上报内容导致全局下发被屏蔽的问题
+- **【服务端】** 修复 policy/credential 版本使用 `orgTs` 时间戳语义混乱的问题（改用独立自增版本号）
+- **【服务端】** 修复自建服务器模式 manifest 所有源 version 硬编码为 0 导致客户端永不拉取的问题（改用真实版本号，补齐 6 个缺失源）
+- **【客户端】** 修复 5 秒轮询无并发保护导致网络抖动时 Reload 堆积的问题（添加 `SemaphoreSlim` 串行化 + `CancellationToken`，轮询间隔提升至 30 秒）
+- **【客户端】** 修复异常回滚无效代码问题（改为「先全部拉取成功再统一提交」模式，去掉无效引用回滚）
+- **【客户端】** 修复 `WriteAllTextSafe` 非原子写导致并发写冲突的问题（改为临时文件 + `File.Replace` 原子替换）
+- **【客户端】** 修复合并标志在下载前置位 + UI 线程深拷贝导致周期性卡顿的问题（合并标志移到下载成功后置位，深拷贝移至后台线程）
+- **【客户端】** 修复替换 Settings 后漏挂 `PropertyChanged` 导致集控刷新后用户改设置不自动保存的问题
+- **【客户端】** 修复临时调课不落盘的问题（`ApplyTempClassPlanAsync` / `ClearTempClassPlanOverlayAsync` 后补 `SaveProfile` 调用）
+- **【客户端】** 修复组件配置不在轮询内且版本号不落盘的问题（`ComponentsSource` 纳入轮询 + `SaveSettings` 落盘版本号）
+- **【客户端】** 修复加入集控会启动第二个轮询循环的问题（`SetupManagement` 添加幂等保护）
+- **【客户端】** 修复退出集控不清理残留的问题（调用 `ClearTempClassPlanOverlayAsync` + 删除下发文件残留）
+- **【服务端】** 修复导入引用完整性校验 `checkReferences` 是死代码的问题（改为遍历 `cp.Classes`，`TimeLayoutId` 校验提升到 ClassPlan 级）
+
+### 🚀 新增功能与优化
+
+- **【管理端】** 新增「下发状态」标签页：设备×内容类型矩阵，暴露全局/专属/生效版本，让下发是否生效从黑盒变白盒
+- **【管理端】** `viewRaw` 弹窗限制渲染长度（超 500 行截断提示下载），新增复制和下载按钮
+- **【服务端】** 为所有内容源补齐删除接口与 `version==0` 撤回语义（此前仅 tempclassplan 支持删除）
+- **【服务端】** 给 `mgmt_content` 表增加 `source` 标记列区分下发（push）与上报（report），客户端拉取只认 `source='push'` 的记录
+- **【管理端】** 删除组织改为输入组织名二次确认，显示影响面摘要（组织/设备/内容数量）
+- **【管理端】** 删除设备增加后果说明（「客户端将自动退出集控并重启」）
+- **【管理端】** 消息提示改为 toast 队列（可叠加显示、不互相覆盖、支持手动关闭）
+- **【管理端】** 批量操作改为逐项执行 + 进度条 + 失败详情汇总（成功 X 个，失败 Y 个）
+- **【客户端】** 统一自动/手动两套路径的合并与覆盖语义说明，确保版本号不互相踩踏
+
+### 🔧 内部改进
+
+- `ManagementService.cs`：新增 `_reloadLock`（SemaphoreSlim）、`_managementCts`（CancellationTokenSource）、`_isPollingLoopRunning`（幂等标志）；`ReloadManagementAsync` 改为先拉取后提交模式；`SetupManagement` 添加幂等保护；`ExitManagementAsync` 添加残留清理
+- `ConfigureFileHelper.cs`：`WriteAllTextSafe` 改为临时文件 + `File.Replace` 原子替换
+- `ProfileService.cs`：合并标志移到下载成功后置位，`CopyObject` 深拷贝用 `Task.Run` 移至后台线程
+- `ComponentsService.cs`：补 `SaveSettings()` 调用落盘版本号
+- `_app.js`：`POST /serverless/report` 不再写 `mgmt_content`；`ver()` 优先级修正；`/manifest` 重写用真实版本号；新增 `ensureOrgColumns` 运行时迁移；所有 kind 补齐删除接口
+- `_import.js`：`checkReferences` 改为遍历 `cp.Classes`，`TimeLayoutId` 校验提升到 ClassPlan 级
+- `_db.js`：`ensureOrgColumns` 添加 `source` / `policy_version` / `credential_version` 列
+- `Management.vue`：新增下发状态标签页、toast 队列、批量进度条、viewRaw 复制下载、删组织/删设备二次确认
+
 ## [2.1.2.14] - 2026-09-27
 
 集控课表/时间表拉取合并逻辑的全面修复。在此版本我们修复了 `PullAndOverwriteAsync` 与 `MergeDictionary` 在合并过程中存在的多个数据一致性问题，请及时更新。
