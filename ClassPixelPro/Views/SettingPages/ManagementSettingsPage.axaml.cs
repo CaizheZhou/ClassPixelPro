@@ -392,12 +392,64 @@ public partial class ManagementSettingsPage : SettingsPageBase
                             _ => "全局"
                         };
                     }
+
+                    // 显示"配置模式已更改"提示和重新拉取按钮
+                    // 切换模式后本地配置仍是旧的，需重新拉取才能完全生效
+                    if (ConfigModeChangedPanel != null)
+                    {
+                        ConfigModeChangedPanel.IsVisible = true;
+                    }
                 });
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"设置配置模式失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// "立即重新拉取配置"按钮点击事件。
+    /// 调用 <see cref="Services.Management.ManagementService.ReloadManagementAsync"/> 重新拉取所有集控配置，
+    /// 完成后刷新选配池列表与 UI，并隐藏切换模式提示面板。
+    /// </summary>
+    private async void ReloadConfigButton_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (ReloadConfigButton != null)
+        {
+            ReloadConfigButton.IsEnabled = false;
+            ReloadConfigButton.Content = "🔄 正在重新拉取配置...";
+        }
+
+        try
+        {
+            // IManagementService 接口未暴露 Reload 方法，需通过具体类型调用。
+            // 项目中已有此类型转换模式（见 ButtonPullAll_OnClick 内的 concreteManagementService 用法）。
+            if (ManagementService is Services.Management.ManagementService concreteManagementService)
+            {
+                await concreteManagementService.ReloadManagementAsync();
+            }
+
+            // 重新加载选配池列表并同步 UI
+            await LoadPoolConfigsAndSyncUI();
+
+            // 拉取完成，隐藏提示面板
+            if (ConfigModeChangedPanel != null)
+            {
+                ConfigModeChangedPanel.IsVisible = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"重新拉取配置失败: {ex.Message}");
+        }
+        finally
+        {
+            if (ReloadConfigButton != null)
+            {
+                ReloadConfigButton.IsEnabled = true;
+                ReloadConfigButton.Content = "🔄 立即重新拉取配置";
+            }
         }
     }
 
