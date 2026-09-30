@@ -1254,14 +1254,20 @@
                                                                        Label="删除时间表">
                                                 <controls:CommandBarButton.Flyout>
                                                     <Flyout>
-                                                        <StackPanel Spacing="8">
-                                                            <TextBlock FontWeight="Bold">
+                                                        <StackPanel Spacing="8" MaxWidth="300">
+                                                            <TextBlock FontWeight="Bold" TextWrapping="Wrap">
                                                                 <Run Text="要删除时间表" />
                                                                 <Run
                                                                     Text="{Binding $parent[views:ProfileSettingsWindow].ViewModel.SelectedTimeLayout.Name}" />
                                                                 <Run Text="吗？" />
                                                             </TextBlock>
                                                             <TextBlock Text="此操作无法撤销。" />
+                                                            <!-- 删除失败时就地显示原因。原来只弹一条 5 秒 Toast，
+                                                                 用户注意力在命令栏上时会完全看不到，表现为"点删除没反应"。 -->
+                                                            <TextBlock x:Name="TextBlockDeleteTimeLayoutError"
+                                                                       TextWrapping="Wrap"
+                                                                       IsVisible="False"
+                                                                       Foreground="#D83B01" />
                                                             <Button Content="删除" Classes="accent"
                                                                     Click="ButtonDeleteTimeLayout_OnClick" />
                                                         </StackPanel>

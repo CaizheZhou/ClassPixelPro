@@ -127,21 +127,51 @@
                             <Run>从服务器强制拉取选定的集控内容并覆盖本地设置。如果服务器同时下发了全局课表和本设备的专属课表，将优先使用专属课表。</Run>
                         </TextBlock>
                         <StackPanel Spacing="4" Margin="0 4 0 0">
-                            <CheckBox x:Name="PullClassPlanCheckBox"
-                                      Content="课表（ClassPlan + ClassPlanGroups）"
-                                      IsChecked="True"/>
-                            <CheckBox x:Name="PullTimeLayoutCheckBox"
-                                      Content="时间表（TimeLayouts）"
-                                      IsChecked="True"/>
-                            <CheckBox x:Name="PullSubjectsCheckBox"
-                                      Content="科目（Subjects）"
-                                      IsChecked="True"/>
-                            <CheckBox x:Name="PullAppSettingsCheckBox"
-                                      Content="应用设置（AppSettings）"
-                                      IsChecked="True"/>
-                            <CheckBox x:Name="PullComponentSchemeCheckBox"
-                                      Content="组件方案（ComponentScheme）"
-                                      IsChecked="True"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <CheckBox x:Name="PullClassPlanCheckBox"
+                                          Content="课表（ClassPlan + ClassPlanGroups）"
+                                          IsChecked="True"/>
+                                <Button Content="👁 预览"
+                                        Click="ButtonPreviewClassPlan_OnClick"
+                                        Padding="8 2" FontSize="12"
+                                        VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <CheckBox x:Name="PullTimeLayoutCheckBox"
+                                          Content="时间表（TimeLayouts）"
+                                          IsChecked="True"/>
+                                <Button Content="👁 预览"
+                                        Click="ButtonPreviewTimeLayout_OnClick"
+                                        Padding="8 2" FontSize="12"
+                                        VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <CheckBox x:Name="PullSubjectsCheckBox"
+                                          Content="科目（Subjects）"
+                                          IsChecked="True"/>
+                                <Button Content="👁 预览"
+                                        Click="ButtonPreviewSubjects_OnClick"
+                                        Padding="8 2" FontSize="12"
+                                        VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <CheckBox x:Name="PullAppSettingsCheckBox"
+                                          Content="应用设置（AppSettings）"
+                                          IsChecked="True"/>
+                                <Button Content="👁 预览"
+                                        Click="ButtonPreviewAppSettings_OnClick"
+                                        Padding="8 2" FontSize="12"
+                                        VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <CheckBox x:Name="PullComponentSchemeCheckBox"
+                                          Content="组件方案（ComponentScheme）"
+                                          IsChecked="True"/>
+                                <Button Content="👁 预览"
+                                        Click="ButtonPreviewComponentScheme_OnClick"
+                                        Padding="8 2" FontSize="12"
+                                        VerticalAlignment="Center"/>
+                            </StackPanel>
                             <CheckBox x:Name="PullThemeCheckBox"
                                       Content="主题（Theme）"
                                       IsChecked="True"/>

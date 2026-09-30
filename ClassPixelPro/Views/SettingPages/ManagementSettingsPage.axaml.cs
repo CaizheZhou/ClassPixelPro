@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -666,6 +667,415 @@ public partial class ManagementSettingsPage : SettingsPageBase
             return string.Join("、", parts);
         }
     }
+
+    #region 配置预览
+
+    /// <summary>
+    /// 预览当前拉取到本地的课表缓存（ClassPlans.json）。
+    /// </summary>
+    private async void ButtonPreviewClassPlan_OnClick(object sender, RoutedEventArgs e)
+    {
+        var path = Services.ProfileService.ManagementClassPlanPath;
+        if (!File.Exists(path))
+        {
+            await CommonTaskDialogs.ShowDialog("课表预览", "尚未拉取，请先拉取配置。");
+            return;
+        }
+
+        try
+        {
+            var profile = ConfigureFileHelper.LoadConfig<Profile>(path);
+            var text = BuildClassPlanPreview(profile);
+            await ShowPreviewDialog("课表预览", text);
+        }
+        catch (Exception ex)
+        {
+            await CommonTaskDialogs.ShowDialog("课表预览失败", $"读取课表缓存失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 预览当前拉取到本地的时间表缓存（TimeLayouts.json）。
+    /// </summary>
+    private async void ButtonPreviewTimeLayout_OnClick(object sender, RoutedEventArgs e)
+    {
+        var path = Services.ProfileService.ManagementTimeLayoutPath;
+        if (!File.Exists(path))
+        {
+            await CommonTaskDialogs.ShowDialog("时间表预览", "尚未拉取，请先拉取配置。");
+            return;
+        }
+
+        try
+        {
+            var profile = ConfigureFileHelper.LoadConfig<Profile>(path);
+            var text = BuildTimeLayoutPreview(profile);
+            await ShowPreviewDialog("时间表预览", text);
+        }
+        catch (Exception ex)
+        {
+            await CommonTaskDialogs.ShowDialog("时间表预览失败", $"读取时间表缓存失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 预览当前拉取到本地的科目缓存（Subjects.json）。
+    /// </summary>
+    private async void ButtonPreviewSubjects_OnClick(object sender, RoutedEventArgs e)
+    {
+        var path = Services.ProfileService.ManagementSubjectsPath;
+        if (!File.Exists(path))
+        {
+            await CommonTaskDialogs.ShowDialog("科目预览", "尚未拉取，请先拉取配置。");
+            return;
+        }
+
+        try
+        {
+            var profile = ConfigureFileHelper.LoadConfig<Profile>(path);
+            var text = BuildSubjectsPreview(profile);
+            await ShowPreviewDialog("科目预览", text);
+        }
+        catch (Exception ex)
+        {
+            await CommonTaskDialogs.ShowDialog("科目预览失败", $"读取科目缓存失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 预览当前拉取到本地的应用设置缓存（AppSettings.json）。
+    /// </summary>
+    private async void ButtonPreviewAppSettings_OnClick(object sender, RoutedEventArgs e)
+    {
+        var path = Services.Management.ManagementService.ManagementAppSettingsPath;
+        if (!File.Exists(path))
+        {
+            await CommonTaskDialogs.ShowDialog("应用设置预览", "尚未拉取，请先拉取配置。");
+            return;
+        }
+
+        try
+        {
+            var settings = ConfigureFileHelper.LoadConfig<Settings>(path);
+            var text = BuildAppSettingsPreview(settings);
+            await ShowPreviewDialog("应用设置预览", text);
+        }
+        catch (Exception ex)
+        {
+            await CommonTaskDialogs.ShowDialog("应用设置预览失败", $"读取应用设置缓存失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 预览当前拉取到本地的组件方案缓存（ManagementComponentScheme.json）。
+    /// </summary>
+    private async void ButtonPreviewComponentScheme_OnClick(object sender, RoutedEventArgs e)
+    {
+        var path = Services.Management.ManagementService.ManagementComponentSchemePath;
+        if (!File.Exists(path))
+        {
+            await CommonTaskDialogs.ShowDialog("组件方案预览", "尚未拉取，请先拉取配置。");
+            return;
+        }
+
+        try
+        {
+            var scheme = ConfigureFileHelper.LoadConfig<ComponentProfile>(path);
+            var text = BuildComponentSchemePreview(scheme);
+            await ShowPreviewDialog("组件方案预览", text);
+        }
+        catch (Exception ex)
+        {
+            await CommonTaskDialogs.ShowDialog("组件方案预览失败", $"读取组件方案缓存失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 以可滚动的等宽文本对话框展示预览内容。
+    /// </summary>
+    private static async Task ShowPreviewDialog(string title, string content)
+    {
+        var textBlock = new TextBlock
+        {
+            Text = content,
+            FontFamily = new FontFamily("Consolas"),
+            TextWrapping = TextWrapping.NoWrap,
+            FontSize = 13
+        };
+        var scrollViewer = new ScrollViewer
+        {
+            Content = textBlock,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            MaxHeight = 500,
+            MaxWidth = 700
+        };
+        var dialog = new TaskDialog
+        {
+            Header = title,
+            Content = scrollViewer,
+            XamlRoot = AppBase.Current.GetRootWindow(),
+            Buttons =
+            {
+                new TaskDialogButton("关闭", true)
+                {
+                    IsDefault = true
+                }
+            }
+        };
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// 生成课表预览文本。展示每个课表的名称、触发星期、关联时间表与课程列表（科目简称）。
+    /// </summary>
+    private static string BuildClassPlanPreview(Profile profile)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"课表数量：{profile.ClassPlans.Count}");
+        if (profile.ClassPlanGroups.Count > 0)
+        {
+            sb.AppendLine($"课表群数量：{profile.ClassPlanGroups.Count}");
+        }
+        sb.AppendLine(new string('─', 40));
+
+        var weekDayNames = new[] { "周日", "周一", "周二", "周三", "周四", "周五", "周六" };
+
+        foreach (var (id, plan) in profile.ClassPlans)
+        {
+            sb.AppendLine($"【{plan.Name}】");
+            sb.AppendLine($"  ID：{id}");
+            if (profile.TimeLayouts.TryGetValue(plan.TimeLayoutId, out var tl))
+            {
+                sb.AppendLine($"  关联时间表：{tl.Name}");
+            }
+            else
+            {
+                sb.AppendLine($"  关联时间表ID：{plan.TimeLayoutId}（未在缓存中找到）");
+            }
+            var weekDay = plan.TimeRule.WeekDay;
+            var weekDayText = weekDay >= 0 && weekDay < weekDayNames.Length
+                ? weekDayNames[weekDay]
+                : $"第{weekDay}天";
+            sb.AppendLine($"  触发星期：{weekDayText}");
+            if (plan.TimeRule.WeekCountDiv != 0)
+            {
+                sb.AppendLine($"  轮换：第{plan.TimeRule.WeekCountDiv}周 / 共{plan.TimeRule.WeekCountDivTotal}周");
+            }
+            sb.AppendLine($"  课程列表（共{plan.Classes.Count}节）：");
+            for (var i = 0; i < plan.Classes.Count; i++)
+            {
+                var cls = plan.Classes[i];
+                var subjectName = "（空）";
+                if (cls.SubjectId != Guid.Empty && profile.Subjects.TryGetValue(cls.SubjectId, out var subject))
+                {
+                    subjectName = string.IsNullOrEmpty(subject.Initial) ? subject.Name : subject.Initial;
+                }
+                var enabledText = cls.IsEnabled ? "" : "（已禁用）";
+                sb.AppendLine($"    {i + 1}. {subjectName}{enabledText}");
+            }
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 生成时间表预览文本。展示每个时间表的名称与时间点列表（开始-结束 + 类型）。
+    /// </summary>
+    private static string BuildTimeLayoutPreview(Profile profile)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"时间表数量：{profile.TimeLayouts.Count}");
+        sb.AppendLine(new string('─', 40));
+
+        foreach (var (id, layout) in profile.TimeLayouts)
+        {
+            sb.AppendLine($"【{layout.Name}】");
+            sb.AppendLine($"  ID：{id}");
+            sb.AppendLine($"  时间点（共{layout.Layouts.Count}个）：");
+            for (var i = 0; i < layout.Layouts.Count; i++)
+            {
+                var item = layout.Layouts[i];
+                var typeText = item.TimeType switch
+                {
+                    0 => "上课",
+                    1 => "课间",
+                    2 => "分割线",
+                    3 => "行动",
+                    _ => "未知"
+                };
+                string timeRange;
+                if (item.TimeType == 1 && !string.IsNullOrEmpty(item.BreakName))
+                {
+                    timeRange = $"{FormatTimeSpan(item.StartTime)}-{FormatTimeSpan(item.EndTime)} {item.BreakName}";
+                }
+                else
+                {
+                    timeRange = $"{FormatTimeSpan(item.StartTime)}-{FormatTimeSpan(item.EndTime)} {typeText}";
+                }
+                sb.AppendLine($"    {i + 1}. {timeRange}");
+            }
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 生成科目预览文本。展示每个科目的简称、全名、教师与是否户外。
+    /// </summary>
+    private static string BuildSubjectsPreview(Profile profile)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"科目数量：{profile.Subjects.Count}");
+        sb.AppendLine(new string('─', 40));
+
+        var idx = 0;
+        foreach (var (id, subject) in profile.Subjects)
+        {
+            idx++;
+            sb.AppendLine($"【科目 {idx}】");
+            sb.AppendLine($"  ID：{id}");
+            sb.AppendLine($"  简称：{subject.Initial}");
+            sb.AppendLine($"  全名：{subject.Name}");
+            sb.AppendLine($"  教师：{subject.TeacherName}");
+            sb.AppendLine($"  户外：{(subject.IsOutDoor ? "是" : "否")}");
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 生成应用设置预览文本。展示主题、颜色、字体、通知等关键设置项。
+    /// </summary>
+    private static string BuildAppSettingsPreview(Settings settings)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("【应用设置】");
+        sb.AppendLine(new string('─', 40));
+
+        var themeText = settings.Theme switch
+        {
+            0 => "跟随系统",
+            1 => "明亮",
+            2 => "黑暗",
+            _ => $"未知({settings.Theme})"
+        };
+        sb.AppendLine($"  主题：{themeText}");
+        sb.AppendLine($"  强调色：{ToHexColor(settings.PrimaryColor)}");
+        sb.AppendLine($"  次强调色：{ToHexColor(settings.SecondaryColor)}");
+        sb.AppendLine($"  背景色：{ToHexColor(settings.BackgroundColor)}");
+        sb.AppendLine($"  自定义背景色启用：{(settings.IsCustomBackgroundColorEnabled ? "是" : "否")}");
+        sb.AppendLine($"  透明度：{settings.Opacity}");
+        sb.AppendLine($"  缩放：{settings.Scale}");
+        sb.AppendLine($"  主窗口字体：{settings.MainWindowFont}");
+        sb.AppendLine($"  字体粗细：{settings.MainWindowFontWeight2}");
+        sb.AppendLine($"  圆角X：{settings.RadiusX}");
+        sb.AppendLine($"  圆角Y：{settings.RadiusY}");
+        sb.AppendLine($"  次要字号：{settings.MainWindowSecondaryFontSize}");
+        sb.AppendLine($"  正文字号：{settings.MainWindowBodyFontSize}");
+        sb.AppendLine($"  强调字号：{settings.MainWindowEmphasizedFontSize}");
+        sb.AppendLine($"  大字号：{settings.MainWindowLargeFontSize}");
+        sb.AppendLine($"  自定义前景色启用：{(settings.IsCustomForegroundColorEnabled ? "是" : "否")}");
+        sb.AppendLine($"  自定义前景色：{ToHexColor(settings.CustomForegroundColor)}");
+        sb.AppendLine($"  行垂直间距：{settings.MainWindowLineVerticalMargin}");
+        sb.AppendLine($"  调度间距：{settings.ScheduleSpacing}");
+        sb.AppendLine($"  当前档案：{settings.SelectedProfile}");
+        sb.AppendLine($"  当前组件方案：{settings.CurrentComponentConfig}");
+        sb.AppendLine($"  Island 分离：{(settings.IsIslandSeperated ? "是" : "否")}");
+        sb.AppendLine($"  主窗口可见：{(settings.IsMainWindowVisible ? "是" : "否")}");
+        sb.AppendLine($"  颜色来源：{settings.ColorSource}");
+        sb.AppendLine($"  选中调色板索引：{settings.SelectedPlatteIndex}");
+        sb.AppendLine($"  壁纸类名：{settings.WallpaperClassName}");
+        sb.AppendLine($"  壁纸自动更新：{(settings.IsWallpaperAutoUpdateEnabled ? "是" : "否")}");
+        sb.AppendLine($"  壁纸更新间隔(秒)：{settings.WallpaperAutoUpdateIntervalSeconds}");
+        sb.AppendLine($"  回退模式启用：{(settings.IsFallbackModeEnabled ? "是" : "否")}");
+        sb.AppendLine($"  目标亮度值：{settings.TargetLightValue}");
+        sb.AppendLine($"  显示日期：{(settings.ShowDate ? "是" : "否")}");
+        sb.AppendLine($"  上课时隐藏：{(settings.HideOnClass ? "是" : "否")}");
+        sb.AppendLine($"  全屏时隐藏：{(settings.HideOnFullscreen ? "是" : "否")}");
+        sb.AppendLine($"  最大窗口时隐藏：{(settings.HideOnMaxWindow ? "是" : "否")}");
+        sb.AppendLine($"  提前通知秒数：{settings.ClassPrepareNotifySeconds}");
+        sb.AppendLine($"  课前通知启用：{(settings.IsClassPrepareNotificationEnabled ? "是" : "否")}");
+        sb.AppendLine($"  换课通知启用：{(settings.IsClassChangingNotificationEnabled ? "是" : "否")}");
+        sb.AppendLine($"  下课通知启用：{(settings.IsClassOffNotificationEnabled ? "是" : "否")}");
+        sb.AppendLine($"  通知启用：{(settings.IsNotificationEnabled ? "是" : "否")}");
+        sb.AppendLine($"  启动画面启用：{(settings.IsSplashEnabled ? "是" : "否")}");
+        sb.AppendLine($"  启动画面文字：{settings.SplashCustomText}");
+        sb.AppendLine($"  精确时间启用：{(settings.IsExactTimeEnabled ? "是" : "否")}");
+        sb.AppendLine($"  时间偏移秒数：{settings.TimeOffsetSeconds}");
+        sb.AppendLine($"  动画等级：{settings.AnimationLevel}");
+        sb.AppendLine($"  报告启用：{(settings.IsReportingEnabled ? "是" : "否")}");
+        sb.AppendLine($"  Sentry 启用：{(settings.IsSentryEnabled ? "是" : "否")}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 生成组件方案预览文本。展示行/组件树形结构（缩进展示子组件）。
+    /// </summary>
+    private static string BuildComponentSchemePreview(ComponentProfile scheme)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"行数：{scheme.Lines.Count}");
+        sb.AppendLine(new string('─', 40));
+
+        for (var i = 0; i < scheme.Lines.Count; i++)
+        {
+            var line = scheme.Lines[i];
+            var mainLineText = line.IsMainLine ? "（主行）" : "";
+            sb.AppendLine($"[行 {i + 1}]{mainLineText}");
+            sb.AppendLine($"  可见：{(line.IsVisible ? "是" : "否")}");
+            sb.AppendLine($"  提醒启用：{(line.IsNotificationEnabled ? "是" : "否")}");
+            sb.AppendLine($"  组件数：{line.Children.Count}");
+            for (var j = 0; j < line.Children.Count; j++)
+            {
+                BuildComponentNodePreview(sb, line.Children[j], 1, j + 1);
+            }
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// 递归生成组件节点预览文本。Children 为 [JsonIgnore] 计算属性，
+    /// 从缓存加载时若组件 Settings 实现了 IComponentContainerSettings 则 Children 有值，否则为 null。
+    /// </summary>
+    private static void BuildComponentNodePreview(StringBuilder sb, ComponentSettings comp, int indent, int index)
+    {
+        var indentStr = new string(' ', indent * 2);
+        var name = string.IsNullOrEmpty(comp.NameCache) ? comp.Id : comp.NameCache;
+        sb.AppendLine($"{indentStr}{index}. {name}（ID: {comp.Id}）");
+        var children = comp.Children;
+        if (children != null)
+        {
+            for (var k = 0; k < children.Count; k++)
+            {
+                BuildComponentNodePreview(sb, children[k], indent + 1, k + 1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 将 TimeSpan 格式化为 HH:mm 字符串。
+    /// </summary>
+    private static string FormatTimeSpan(TimeSpan time)
+    {
+        return $"{(int)time.TotalHours:D2}:{time.Minutes:D2}";
+    }
+
+    /// <summary>
+    /// 将 Avalonia.Media.Color 格式化为 #RRGGBBAA 十六进制字符串。
+    /// </summary>
+    private static string ToHexColor(Color color)
+    {
+        return $"#{color.R:X2}{color.G:X2}{color.B:X2}{color.A:X2}";
+    }
+
+    #endregion
 
     private async void ButtonUnbindTeacher_OnClick(object sender, RoutedEventArgs e)
     {
