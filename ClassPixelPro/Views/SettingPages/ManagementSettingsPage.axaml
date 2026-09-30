@@ -158,10 +158,10 @@
                                     CornerRadius="6" Padding="10">
                                 <StackPanel Spacing="6">
                                     <TextBlock Text="⚠️ 配置模式已更改" FontWeight="SemiBold" />
-                                    <TextBlock Text="需要重启应用才能完全生效。点击下方按钮立即重启应用。"
+                                    <TextBlock Text="需要重启应用才能完全生效。点击下方按钮重新拉取配置并重启应用。"
                                                FontSize="12" Opacity="0.8" TextWrapping="Wrap" />
                                     <Button x:Name="ReloadConfigButton"
-                                            Content="🔄 重启应用"
+                                            Content="🔄 拉取并重启"
                                             Click="ReloadConfigButton_OnClick"
                                             Classes="Accent"
                                             Margin="0 4 0 0" />

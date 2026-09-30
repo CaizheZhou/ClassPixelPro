@@ -409,9 +409,9 @@ public partial class ManagementSettingsPage : SettingsPageBase
     }
 
     /// <summary>
-    /// "重启应用"按钮点击事件。
+    /// "拉取并重启"按钮点击事件。
     /// 切换配置模式后，部分配置（如组件方案、主题等）需要重启进程才能完全生效。
-    /// 此处弹出确认对话框，确认后启动新进程并退出当前进程。
+    /// 此处先重置所有本地版本号为 0 以强制重新拉取所有配置，拉取完成后再重启进程。
     /// </summary>
     private async void ReloadConfigButton_OnClick(object sender, RoutedEventArgs e)
     {
@@ -420,8 +420,8 @@ public partial class ManagementSettingsPage : SettingsPageBase
         var confirmDialog = new TaskDialog
         {
             Title = "ClassPixelPro",
-            SubHeader = "确认重启",
-            Content = "重启应用后将重新加载所有集控配置。确定要重启吗？",
+            SubHeader = "确认拉取并重启",
+            Content = "将重新从服务器拉取所有集控配置，然后重启应用。确定要继续吗？",
             Buttons =
             {
                 TaskDialogButton.CancelButton,
@@ -438,6 +438,36 @@ public partial class ManagementSettingsPage : SettingsPageBase
 
         try
         {
+            // 第一步：重置所有本地版本号为 0，强制下次 Reload 拉取所有配置。
+            // 切换模式后服务端返回的新模式版本号可能小于本地缓存的版本号
+            // （如 global classplan v3 → pool v2，IsNewerAndNotNull(2 > 3) 为 false 不拉取），
+            // 故需先重置版本号才能强制拉取新配置。
+            var versions = ManagementService.Versions;
+            versions.ClassPlanVersion = 0;
+            versions.TimeLayoutVersion = 0;
+            versions.SubjectsVersion = 0;
+            versions.DefaultSettingsVersion = 0;
+            versions.PolicyVersion = 0;
+            versions.CredentialVersion = 0;
+            versions.ComponentsVersion = 0;
+            versions.AppSettingsVersion = 0;
+            versions.PluginsVersion = 0;
+            versions.ThemeVersion = 0;
+            versions.ComponentSchemeVersion = 0;
+            versions.TempClassPlanVersion = 0;
+            versions.HelpInfoVersion = 0;
+
+            // 第二步：重新拉取所有配置
+            // ReloadManagementAsync 定义在实现类 Services.Management.ManagementService 上，
+            // 接口 IManagementService 未暴露该方法，故需先做类型转换，与 PullAndOverwriteAsync 中的处理一致。
+            if (ManagementService is not Services.Management.ManagementService concreteManagementService)
+            {
+                await CommonTaskDialogs.ShowDialog("拉取失败", "无法获取集控服务实例。");
+                return;
+            }
+            await concreteManagementService.ReloadManagementAsync();
+
+            // 第三步：重启应用
             var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
             var executablePath = currentProcess.MainModule?.FileName;
             if (string.IsNullOrEmpty(executablePath))
@@ -458,7 +488,7 @@ public partial class ManagementSettingsPage : SettingsPageBase
         }
         catch (Exception ex)
         {
-            await CommonTaskDialogs.ShowDialog("重启失败", $"重启应用失败：{ex.Message}");
+            await CommonTaskDialogs.ShowDialog("操作失败", $"拉取配置或重启应用失败：{ex.Message}");
         }
     }
 
