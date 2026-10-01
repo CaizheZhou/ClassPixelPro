@@ -4,6 +4,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.23] - 2026-10-01
+
+DI 容器修复热补丁：修复客户端启动时因 `ManagementService` 具体类型未注册导致的激活失败。
+
+### 🐛 Bug 修复
+
+- **修复客户端启动报错 "Unable to resolve service for type 'ManagementService'"**：`ManagementService` 此前只通过接口 `services.AddSingleton<IManagementService, ManagementService>()` 注册，但 `TeacherBindingGate` 与 `RemoteMonitorSettingsViewModel` 的构造函数直接依赖 `ManagementService` 具体类型，DI 容器无法解析导致启动崩溃。新增 `services.AddSingleton<ManagementService>(sp => (ManagementService)sp.GetRequiredService<IManagementService>())` 使具体类型指向同一单例实例
+
 ## [2.1.2.22] - 2026-10-01
 
 远程监控稳定性大版本：组件全自动后台下载、传话功能修复、开启前置门禁，以及启动速度与调试体验修复。

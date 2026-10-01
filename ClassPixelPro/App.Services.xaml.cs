@@ -75,6 +75,7 @@ public partial class App
         //services.AddHostedService<BootService>();
         services.AddSingleton<DiagnosticService>();
         services.AddSingleton<IManagementService, ManagementService>();
+        services.AddSingleton<ManagementService>(sp => (ManagementService)sp.GetRequiredService<IManagementService>());
         services.AddSingleton<AppLogService>();
         services.AddSingleton<IComponentsService, ComponentsService>();
         services.AddSingleton<ILessonsService, LessonsService>();
