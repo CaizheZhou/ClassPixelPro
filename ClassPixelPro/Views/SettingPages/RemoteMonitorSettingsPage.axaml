@@ -19,7 +19,7 @@
             <controls1:IconText Glyph="&#xE8B6;" Text="远程监控" Margin="0 0 0 4" />
 
             <!-- 前置条件横幅：未加入集控或未绑定班主任时显示，替代功能说明 -->
-            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static ObjectConverters.IsNotNullOrEmpty}}"
+            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     Background="{DynamicResource InfoBarWarningSeverityBrush}"
                     Padding="16 12"
                     CornerRadius="8"
@@ -32,7 +32,7 @@
             </Border>
 
             <!-- 功能说明横幅（前置条件满足时显示） -->
-            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static ObjectConverters.IsNullOrEmpty}}"
+            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static StringConverters.IsNullOrEmpty}}"
                     Background="{DynamicResource ControlFillColorDefaultBrush}"
                     Padding="16 12"
                     CornerRadius="8"
