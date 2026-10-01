@@ -4,6 +4,34 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.22] - 2026-10-01
+
+远程监控稳定性大版本：组件全自动后台下载、传话功能修复、开启前置门禁，以及启动速度与调试体验修复。
+
+### 🐛 Bug 修复
+
+- **修复档案编辑删除时间表点击无反应**：删除时间表按钮被折叠进命令栏溢出菜单（窗口宽度不足时）后，其确认 Flyout 在溢出环境中无法弹出，点击后处理器不执行、无任何提示。确认交互改为 TaskDialog 模态弹窗，按钮固定显示在主命令栏
+- **修复 VS 无法启动调试**：`ConfigureFileHelper.WriteAllTextSafe` 使用 `Environment.ProcessId` 与 `File.Move` 三参数重载（均为 .NET 5+/Core 3.0+ API），在 Shared 项目的 net472 目标下编译失败（NUKE 打包只走 net8.0 掩盖了问题）。改用 `Process.GetCurrentProcess().Id` 与两参数 `Move`
+- **修复每次启动全量重新拉取集控配置**：`Versions.json` 与 `Manifest.json` 此前只保存不加载，每次启动版本号归零，SetupManagement 将所有内容源判定为有更新而全量重新拉取（10+ 个串行网络请求）。现在构造时从磁盘恢复版本号与清单，服务端无更新时启动只做一次轻量 manifest 检测
+- **修复加入集控后启动 11 秒才出现 Splash**：全量重拉阻塞在 Splash 显示之前。根因与上一条相同，修复后 Splash 1-2 秒内出现
+- **修复传话功能无法使用（三处叠加）**：教师端 AudioContext 被浏览器 autoplay 策略挂起导致采集 0 字节静默返回（现在自动 resume 并明确报错）；整段录音一次性发送经隧道传输慢、2 秒强制关闭掐断数据（改为流式实时发送）；客户端音频 WS 断开时误释放摄像头导致远程画面随传话结束中断
+- **修复开启远程监控后重启不自启**：自启动逻辑写在 BootService（IHostedService）中，但该服务从未被注册，自启动为死代码。改为在 App 启动序列中直接恢复，并补充退出时停止监控服务（修复 cloudflared 进程残留与服务端 tunnel 信息不清理）
+
+### ✨ 新功能
+
+- **远程监控开启前置门禁**：开启/自启动远程监控的前提是已加入集控且已绑定班主任（新增 TeacherBindingGate 服务查询绑定状态，查询失败按未绑定处理）。设置页不满足条件时显示警告横幅并禁用开关
+- **cloudflared 全自动后台下载**：开启监控后 HTTP 服务器立即就绪（局域网可用），组件下载转入后台任务，失败自动指数退避重试，下载完成自动建立隧道并上报，全程无需干预
+- **组件多源竞速下载**：gh-proxy.com / gh-proxy.org / 直连 GitHub 三源同时下载，最快完成且通过校验（体积 + PE 头）者胜出，单源限时不拖累整体
+
+### 🔧 内部改进
+
+- `CloudflaredManager.cs`：下载重构为多源竞速模式，产物校验防止代理错误页/半截文件覆盖
+- `RemoteMonitorService.cs`：StartAsync 拆分为「服务器立即就绪 + 后台隧道任务」；音频 WS 按 EndOfMessage 拼接消息、支持文本结束标记、不再在传话断开时释放摄像头
+- `AudioPlaybackService.cs`：播放设备初始化失败只记一次日志，不再抛异常打断 WS 接收循环
+- `ManagementService.cs`：构造时加载 `Versions.json` / `Manifest.json`
+- `App.axaml.cs`：远程监控自启动与退出清理；`ConfigureFileHelper.cs`：net472 兼容修复
+- 教师端 `RemoteMonitor.vue`：传话重写为流式实时发送（每片约 256ms），连接失败立刻提示
+
 ## [2.1.2.21] - 2026-10-01
 
 ### 修复
