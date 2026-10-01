@@ -491,53 +491,75 @@ public sealed class RemoteMonitorService : IDisposable
         Interlocked.Increment(ref _activeViewerCount);
         ActiveViewerChanged?.Invoke();
 
-        // 自适应帧率参数
-        const int minFps = 15;
+        // 自适应码率参数。
+        // 延迟累积机制：SendAsync 返回只代表数据写入 TCP 发送缓冲（默认数百 KB），
+        // 当码率超过链路吞吐（经 Cloudflare 隧道通常只有 2-5 Mbps），缓冲持续堆积
+        // 数 MB = 数秒延迟。SendAsync 耗时是最佳的拥塞信号：缓冲空闲时瞬时完成，
+        // 缓冲增长时耗时上升。据此动态调整 JPEG 质量与帧率，让码率贴合链路吞吐，
+        // 缓冲不再堆积，延迟稳定在 RTT + 单帧。
+        const int minQuality = 35;
+        const int maxQuality = 70;
+        var jpegQuality = 55;              // 从中等起步（链路未知，宁可先流畅后清晰）
+        var currentFps = 20;
+        const int minFps = 10;
         const int maxFps = 30;
-        var currentFps = 25;
         var frameIntervalMs = 1000.0 / currentFps;
+        var totalBytesSent = 0L;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         try
         {
             while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
-                var sendStart = DateTime.UtcNow;
-                var frame = _cameraCapture.CaptureFrameAsJpeg(65);
+                var frameStart = DateTime.UtcNow;
+
+                // 采集 + 编码（OpenCV Read 天然读取设备最新帧，天然跳帧）
+                var frame = _cameraCapture.CaptureFrameAsJpeg(jpegQuality);
                 if (frame.Length == 0)
                 {
-                    // 采集失败，降低帧率
-                    currentFps = Math.Max(minFps, currentFps - 2);
-                    frameIntervalMs = 1000.0 / currentFps;
-                    await Task.Delay((int)frameIntervalMs, ct);
+                    await Task.Delay(100, ct);
                     continue;
                 }
 
-                // 帧大小优化：超过 150KB 时降低质量重采
-                if (frame.Length > 150 * 1024)
+                // 帧过大时降质量重采一次（阈值随质量走，避免隧道下单帧过大）
+                if (frame.Length > 120 * 1024 && jpegQuality > minQuality)
                 {
-                    var smallerFrame = _cameraCapture.CaptureFrameAsJpeg(50);
-                    if (smallerFrame.Length > 0 && smallerFrame.Length < frame.Length)
+                    var smaller = _cameraCapture.CaptureFrameAsJpeg(Math.Max(minQuality, jpegQuality - 15));
+                    if (smaller.Length > 0 && smaller.Length < frame.Length)
                     {
-                        frame = smallerFrame;
+                        frame = smaller;
                     }
                 }
 
+                // 发送并测量耗时（拥塞信号）
+                sw.Restart();
                 await ws.SendAsync(frame, WebSocketMessageType.Binary, endOfMessage: true, ct);
+                var sendMs = sw.ElapsedMilliseconds;
+                totalBytesSent += frame.Length;
 
-                var sendElapsed = DateTime.UtcNow - sendStart;
-
-                // 自适应帧率：发送耗时长则降帧率，短则升帧率
-                if (sendElapsed.TotalMilliseconds > 200)
+                // 自适应策略：
+                // - 发送 > 250ms：缓冲明显堆积，快速降质 + 降帧（延迟优先）
+                // - 发送 > 120ms：轻微堆积，缓慢降
+                // - 发送 < 60ms：链路空闲，缓慢升质升帧
+                if (sendMs > 250)
                 {
-                    currentFps = Math.Max(minFps, currentFps - 2);
+                    jpegQuality = Math.Max(minQuality, jpegQuality - 12);
+                    currentFps = Math.Max(minFps, currentFps - 3);
                 }
-                else if (sendElapsed.TotalMilliseconds < 80)
+                else if (sendMs > 120)
                 {
+                    jpegQuality = Math.Max(minQuality, jpegQuality - 5);
+                    currentFps = Math.Max(minFps, currentFps - 1);
+                }
+                else if (sendMs < 60)
+                {
+                    jpegQuality = Math.Min(maxQuality, jpegQuality + 2);
                     currentFps = Math.Min(maxFps, currentFps + 2);
                 }
                 frameIntervalMs = 1000.0 / currentFps;
 
-                var delayMs = (int)Math.Max(0, frameIntervalMs - sendElapsed.TotalMilliseconds);
+                var elapsedMs = (DateTime.UtcNow - frameStart).TotalMilliseconds;
+                var delayMs = (int)Math.Max(0, frameIntervalMs - elapsedMs);
                 if (delayMs > 0)
                 {
                     await Task.Delay(delayMs, ct);
@@ -551,14 +573,14 @@ public sealed class RemoteMonitorService : IDisposable
         }
         finally
         {
-            _logger.LogInformation("摄像头 WebSocket 已断开（fps={Fps}）", currentFps);
-            // 释放摄像头，避免无人查看时占用设备
-            _cameraCapture.ReleaseCamera();
-            // 注销活跃查看者
+            _logger.LogInformation(
+                "摄像头 WebSocket 已断开（fps={Fps}, quality={Quality}, 累计发送 {MB:F1} MB）",
+                currentFps, jpegQuality, totalBytesSent / 1048576.0);
+            // 断开时不释放摄像头：保持设备占用，重连免走 DSHOW 慢速打开（1-3 秒黑屏）。
+            // 释放只发生在 StopAsync 与显式切换摄像头时。
             var newCount = Interlocked.Decrement(ref _activeViewerCount);
             if (newCount < 0)
             {
-                // 防止计数变负（不应该发生但防御性编程）
                 Interlocked.Exchange(ref _activeViewerCount, 0);
             }
             ActiveViewerChanged?.Invoke();

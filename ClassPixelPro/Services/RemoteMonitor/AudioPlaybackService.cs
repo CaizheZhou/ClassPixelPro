@@ -57,6 +57,9 @@ public sealed class AudioPlaybackService : IDisposable
                     DiscardOnBufferOverflow = true,
                 };
                 _waveOut?.Init(_bufferedProvider);
+                // 格式变更后重新走预缓冲流程
+                _playbackStarted = false;
+                _bufferedBytesTarget = (long)(_waveFormat.AverageBytesPerSecond * 0.3);
             }
         }
         _logger.LogInformation("音频格式设置为 {SampleRate}Hz/{Bits}bit/{Channels}ch", sampleRate, bits, channels);
@@ -94,11 +97,28 @@ public sealed class AudioPlaybackService : IDisposable
             }
 
             _bufferedProvider!.AddSamples(audioData, 0, audioData.Length);
+
+            // jitter 预缓冲：攒够目标字节数才启动播放（一次性），之后持续播放
+            if (!_playbackStarted && _bufferedProvider.BufferedBytes >= _bufferedBytesTarget)
+            {
+                _waveOut!.Play();
+                _playbackStarted = true;
+                _logger.LogInformation("传话预缓冲就绪（{Bytes} 字节），开始播放", _bufferedProvider.BufferedBytes);
+            }
             _logger.LogDebug("已添加 {Size} 字节到播放缓冲区", audioData.Length);
         }
     }
 
     private bool _playbackInitFailedLogged;
+
+    /// <summary>
+    /// jitter 预缓冲：起播前先攒够这么多字节再启动播放。
+    /// 网络抖动导致数据到达不均匀，若收到第一片立即播放，后续断流会造成
+    /// 明显的断续感。预缓冲约 300ms（48kHz×16bit×1ch = 96000 B/s）可显著平滑。
+    /// </summary>
+    private long _bufferedBytesTarget;
+
+    private bool _playbackStarted;
 
     private void EnsurePlaybackInitialized()
     {
@@ -112,8 +132,10 @@ public sealed class AudioPlaybackService : IDisposable
 
         _waveOut = new WaveOutEvent();
         _waveOut.Init(_bufferedProvider);
-        _waveOut.Play();
-        _logger.LogInformation("音频播放已初始化（{Format}）", _waveFormat);
+        // 不在此处 Play：等 jitter 预缓冲攒够后由 PlayAudio 启动
+        _playbackStarted = false;
+        _bufferedBytesTarget = (long)(_waveFormat.AverageBytesPerSecond * 0.3);
+        _logger.LogInformation("音频播放已初始化（{Format}，预缓冲 {Bytes} 字节）", _waveFormat, _bufferedBytesTarget);
     }
 
     /// <summary>

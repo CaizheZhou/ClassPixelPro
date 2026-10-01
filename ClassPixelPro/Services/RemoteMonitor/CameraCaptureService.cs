@@ -136,7 +136,15 @@ public sealed class CameraCaptureService : IDisposable
             _capture.Set(VideoCaptureProperties.FrameHeight, 720);
             // 设置帧率 30fps 保证流畅度
             _capture.Set(VideoCaptureProperties.Fps, 30);
-            _logger.LogInformation("摄像头 {Index} 已打开，1280x720@30fps", _currentIndex);
+            // 关键：强制 MJPG 编码。默认 YUY2 是未压缩格式，720p@30 需要 ~220 MB/s，
+            // 远超 USB 2.0 总线带宽（~35 MB/s），设备实际只能跑 5-10fps——这就是
+            // "画面不流畅"的隐藏根因。MJPG 压缩后 ~20 MB/s，30fps 可达。
+            _capture.Set(VideoCaptureProperties.FourCC, FourCC.MJPG);
+            _logger.LogInformation(
+                "摄像头 {Index} 已打开，1280x720@30fps MJPG（实际 {Fps:F0}fps {W}x{H}）",
+                _currentIndex, _capture.Get(VideoCaptureProperties.Fps),
+                _capture.Get(VideoCaptureProperties.FrameWidth),
+                _capture.Get(VideoCaptureProperties.FrameHeight));
         }
         else
         {
