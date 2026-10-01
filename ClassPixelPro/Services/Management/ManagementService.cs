@@ -158,11 +158,11 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// <summary>
     /// 集控轮询间隔（秒）。
     /// <para>
-    /// 修复 P0-7：原为 5 秒，网络抖动时单源重试最长约 11 秒，13 个源必然并发堆积。
-    /// 提到 30 秒后，单次 Reload 有充足时间完成，且减少无谓的服务器压力。
+    /// 修复 P0-7：<see cref="_reloadLock"/> 串行化保护已能防止并发堆积，单次 Reload 即使耗时较长也不会重叠入队。
+    /// 改回 5 秒间隔，保证临时调课能近实时刷新到客户端，避免因轮询过慢导致课表滞后。
     /// </para>
     /// </summary>
-    private const int ManagementReloadIntervalSeconds = 30;
+    private const int ManagementReloadIntervalSeconds = 5;
 
     /// <summary>
     /// 集控调课与策略拉取等操作的内存日志队列。保留最近 <see cref="MaxLogEntries"/> 条。
