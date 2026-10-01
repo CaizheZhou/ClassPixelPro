@@ -573,6 +573,22 @@ public class ManagementService : ObservableRecipient, IManagementService
                 newComponentScheme = await Connection.GetJsonAsync<ComponentProfile>(newManifest.ComponentSchemeSource.Value.Value!);
             }
             // 拉取临时调课课表
+            // 修复诊断：每次轮询都输出临时课表版本对比，便于排查"班主任改课后客户端不刷新"。
+            // 原实现只在 IsNewerAndNotNull 为 true 时才记日志，version 未变时无任何日志，
+            // 用户无法判断是轮询没跑、manifest 没返回新版本、还是本地版本号异常。
+            if (newManifest.TempClassPlanSource.HasValue)
+            {
+                var remoteTempVer = newManifest.TempClassPlanSource.Value.Version;
+                var localTempVer = Versions.TempClassPlanVersion;
+                var tempNeedFetch = newManifest.TempClassPlanSource.Value.IsNewerAndNotNull(localTempVer);
+                Logger.LogInformation(
+                    "临时课表版本检查: 本地={Local}, 服务端={Remote}, 需拉取={NeedFetch}, Value非空={HasValue}",
+                    localTempVer, remoteTempVer, tempNeedFetch, !string.IsNullOrWhiteSpace(newManifest.TempClassPlanSource.Value.Value));
+            }
+            else
+            {
+                Logger.LogWarning("manifest 未返回 TempClassPlanSource 字段，无法拉取临时课表");
+            }
             if (newManifest.TempClassPlanSource.HasValue &&
                 newManifest.TempClassPlanSource.Value.IsNewerAndNotNull(Versions.TempClassPlanVersion))
             {
@@ -585,6 +601,7 @@ public class ManagementService : ObservableRecipient, IManagementService
             {
                 // 班主任端已删除临时课表（后端 version 回到 0），稍后清除本地 overlay 恢复原课表
                 tempClassPlanDeleted = true;
+                Logger.LogInformation("检测到临时课表已删除（服务端 version=0，本地 version={Local}），将清除本地 overlay", Versions.TempClassPlanVersion);
             }
             // 拉取帮助信息
             if (newManifest.HelpInfoSource.HasValue &&

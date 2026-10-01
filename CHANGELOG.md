@@ -4,6 +4,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.27] - 2026-10-01
+
+### 修复
+- 远程监控 /status 请求取消时不再记录 Error 日志（OperationCanceledException 静默忽略）
+- 远程监控自适应码率参数调优：tunnel 模式 minQuality 从 35 提到 45，升质量速度加快（+4），降质量速度减慢（-8），画质更快恢复
+- 摄像头画面点击放大改为实时渲染（不再卡住不动），放大 modal 用 canvas 同时渲染 WS 流
+- 临时课表刷新诊断日志：每次轮询输出本地版本和服务端版本对比，方便排查改课不刷新问题
+
 ## [2.1.2.26] - 2026-10-01
 
 ### 优化

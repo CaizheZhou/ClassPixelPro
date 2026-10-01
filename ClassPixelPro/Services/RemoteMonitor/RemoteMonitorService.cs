@@ -353,6 +353,10 @@ public sealed class RemoteMonitorService : IDisposable
                     break;
             }
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // 客户端主动取消请求（如前端 tryLocalConnect 5秒超时 abort），不是错误，静默忽略
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "处理请求 {Method} {Path} 失败", method, path);
@@ -523,9 +527,9 @@ public sealed class RemoteMonitorService : IDisposable
         }
         else
         {
-            minQuality = 35;
-            maxQuality = 70;
-            minFps = 10;
+            minQuality = 45;  // 从35提到45，避免质量降太低
+            maxQuality = 75;  // 从70提到75，允许更高画质
+            minFps = 15;      // 从10提到15，保证最低帧率不太低
             maxFps = 30;
         }
         var jpegQuality = (minQuality + maxQuality) / 2;  // 从中点起步（链路未知，宁可先流畅后清晰）
@@ -570,18 +574,18 @@ public sealed class RemoteMonitorService : IDisposable
                 // - 发送 < 60ms：链路空闲，缓慢升质升帧
                 if (sendMs > 250)
                 {
-                    jpegQuality = Math.Max(minQuality, jpegQuality - 12);
-                    currentFps = Math.Max(minFps, currentFps - 3);
+                    jpegQuality = Math.Max(minQuality, jpegQuality - 8);   // 发送慢时降质量（从-12改为-8）
+                    currentFps = Math.Max(minFps, currentFps - 2);
                 }
                 else if (sendMs > 120)
                 {
-                    jpegQuality = Math.Max(minQuality, jpegQuality - 5);
+                    jpegQuality = Math.Max(minQuality, jpegQuality - 3);   // 帧大时降质量（从-5改为-3）
                     currentFps = Math.Max(minFps, currentFps - 1);
                 }
                 else if (sendMs < 60)
                 {
-                    jpegQuality = Math.Min(maxQuality, jpegQuality + 2);
-                    currentFps = Math.Min(maxFps, currentFps + 2);
+                    jpegQuality = Math.Min(maxQuality, jpegQuality + 4);   // 发送快时升质量（从+2改为+4，更快恢复）
+                    currentFps = Math.Min(maxFps, currentFps + 3);
                 }
                 frameIntervalMs = 1000.0 / currentFps;
 
