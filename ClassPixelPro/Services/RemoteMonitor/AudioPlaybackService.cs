@@ -75,15 +75,30 @@ public sealed class AudioPlaybackService : IDisposable
         }
         if (audioData == null || audioData.Length == 0) return;
 
-        _logger.LogInformation("播放音频数据：{Size} 字节", audioData.Length);
-
         lock (_playbackLock)
         {
-            EnsurePlaybackInitialized();
+            try
+            {
+                EnsurePlaybackInitialized();
+            }
+            catch (Exception ex)
+            {
+                // 播放设备初始化失败（如无音频输出设备/被独占）：只记一次日志，
+                // 不抛出——否则一条音频数据就会打断整个 WS 接收循环。
+                if (!_playbackInitFailedLogged)
+                {
+                    _logger.LogError(ex, "音频播放设备初始化失败，传话播放不可用");
+                    _playbackInitFailedLogged = true;
+                }
+                return;
+            }
+
             _bufferedProvider!.AddSamples(audioData, 0, audioData.Length);
-            _logger.LogInformation("已添加 {Size} 字节到播放缓冲区", audioData.Length);
+            _logger.LogDebug("已添加 {Size} 字节到播放缓冲区", audioData.Length);
         }
     }
+
+    private bool _playbackInitFailedLogged;
 
     private void EnsurePlaybackInitialized()
     {

@@ -118,7 +118,13 @@ public sealed class RemoteMonitorService : IDisposable
     }
 
     /// <summary>
-    /// 启动远程监控服务：HTTP 服务器 → cloudflared → 上报 tunnel 信息。
+    /// 启动远程监控服务：HTTP 服务器立即就绪（局域网可用），cloudflared 转入后台任务
+    /// 自动下载（含失败重试）并建立隧道，成功后自动上报 tunnel 信息。
+    /// <para>
+    /// 原实现 await 整个下载（55MB），开关要卡到下载结束才弹回；下载失败仅记日志且
+    /// 不会重试，隧道就永远建立不起来。现改为：下载在后台进行，失败自动重试
+    /// （指数退避），无需用户干预。
+    /// </para>
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -131,37 +137,68 @@ public sealed class RemoteMonitorService : IDisposable
         _serviceCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _logger.LogInformation("正在启动远程监控服务…");
 
-        // 1. 启动 HTTP 服务器
+        // 1. 启动 HTTP 服务器（立即可用，局域网模式）
         StartHttpServer();
         _logger.LogInformation("HTTP 服务器已启动，端口 {Port}，token={Token}", LocalPort, Token);
 
-        // 2. 启动 cloudflared（仅 Windows）
+        _running = true;
+        _logger.LogInformation("远程监控服务已启动");
+
+        // 2. cloudflared（仅 Windows）：后台下载（如缺失）→ 建立隧道，不阻塞 StartAsync
         if (OperatingSystem.IsWindows())
         {
-            try
-            {
-                if (!_cloudflared.IsExecutableReady)
-                {
-                    _logger.LogInformation("首次启动，正在下载 cloudflared.exe…");
-                    await _cloudflared.DownloadAsync(cancellationToken: cancellationToken);
-                }
-
-                _cloudflared.TunnelReady += OnTunnelReady;
-                _cloudflared.TunnelLost += OnTunnelLost;
-                await _cloudflared.StartAsync(LocalPort, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "cloudflared 启动失败，远程监控仅限局域网");
-            }
+            _ = Task.Run(() => EnsureTunnelLoopAsync(_serviceCts.Token));
         }
         else
         {
             _logger.LogWarning("当前平台不支持 cloudflared，远程监控仅限局域网");
         }
+    }
 
-        _running = true;
-        _logger.LogInformation("远程监控服务已启动");
+    /// <summary>
+    /// 后台确保隧道可用：cloudflared 未下载时先下载（失败自动重试，指数退避），
+    /// 就绪后启动隧道。整个循环随 <see cref="StopAsync"/> 的取消令牌结束。
+    /// </summary>
+    private async Task EnsureTunnelLoopAsync(CancellationToken ct)
+    {
+        _cloudflared.TunnelReady += OnTunnelReady;
+        _cloudflared.TunnelLost += OnTunnelLost;
+
+        var backoff = TimeSpan.FromSeconds(3);
+        var maxBackoff = TimeSpan.FromSeconds(60);
+
+        while (!ct.IsCancellationRequested && _running)
+        {
+            try
+            {
+                if (!_cloudflared.IsExecutableReady)
+                {
+                    _logger.LogInformation("cloudflared.exe 未下载，开始后台下载…");
+                    await _cloudflared.DownloadAsync(cancellationToken: ct);
+                    _logger.LogInformation("cloudflared.exe 后台下载完成，启动隧道");
+                }
+
+                await _cloudflared.StartAsync(LocalPort, ct);
+                return; // 隧道监控循环已接管，本任务结束
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "cloudflared 准备失败，{Backoff} 后重试", backoff);
+                try
+                {
+                    await Task.Delay(backoff, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                backoff = TimeSpan.FromTicks(Math.Min(backoff.Ticks * 2, maxBackoff.Ticks));
+            }
+        }
     }
 
     /// <summary>
@@ -538,21 +575,42 @@ public sealed class RemoteMonitorService : IDisposable
         Interlocked.Increment(ref _activeViewerCount);
         ActiveViewerChanged?.Invoke();
 
-        var buffer = new byte[16 * 1024];
+        // 大消息分片拼接：教师端可能一次发送整段录音（数百 KB），
+        // 必须按 EndOfMessage 拼完整后再播放，否则 PCM 数据虽然连续但
+        // 无法识别消息边界（结束标记会被当成音频字节混入播放，产生爆音）。
+        var messageBuffer = new List<byte>(64 * 1024);
+
         try
         {
+            var recvBuffer = new byte[32 * 1024];
             while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
-                var result = await ws.ReceiveAsync(buffer, ct);
+                var result = await ws.ReceiveAsync(new ArraySegment<byte>(recvBuffer), ct);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
                     break;
                 }
-                if (result.MessageType == WebSocketMessageType.Binary && result.Count > 0)
+
+                messageBuffer.AddRange(new ArraySegment<byte>(recvBuffer, 0, result.Count));
+
+                if (!result.EndOfMessage)
                 {
-                    var data = new byte[result.Count];
-                    Array.Copy(buffer, data, result.Count);
-                    _logger.LogInformation("收到音频数据：{Size} 字节", data.Length);
+                    continue; // 消息未完，继续收下一片
+                }
+
+                var data = messageBuffer.ToArray();
+                messageBuffer.Clear();
+
+                if (result.MessageType == WebSocketMessageType.Text)
+                {
+                    // 文本控制消息：{"type":"end"} 表示教师端说完
+                    _logger.LogInformation("收到传话控制消息：{Text}", System.Text.Encoding.UTF8.GetString(data));
+                    _audioPlayback.ClearBuffer();
+                    continue;
+                }
+
+                if (data.Length > 0)
+                {
                     _audioPlayback.PlayAudio(data);
                 }
             }
@@ -565,6 +623,8 @@ public sealed class RemoteMonitorService : IDisposable
         finally
         {
             _logger.LogInformation("音频 WebSocket 已断开");
+            // 注意：这里不释放摄像头——传话与摄像头是两条独立 WS，
+            // 原实现在传话结束时误释放摄像头，导致远程画面中断。
             // 注销活跃查看者
             var newCount = Interlocked.Decrement(ref _activeViewerCount);
             if (newCount < 0)
