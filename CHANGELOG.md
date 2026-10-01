@@ -4,6 +4,12 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.28] - 2026-10-01
+
+### 修复
+- 临时课表刷新不生效：pool 模式下 ver('tempclassplan') 从 config_pool 查版本导致永远返回 0，改为始终从 mgmt_content 查 per-device 记录
+- LAN 信息上报返回 400：tunnelUrl 必填检查改为可选，允许只上报 localIp/localPort
+
 ## [2.1.2.27] - 2026-10-01
 
 ### 修复
