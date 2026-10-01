@@ -764,7 +764,28 @@ public partial class App : AppBase, IAppHost
         
         _ = IAppHost.Host.StartAsync();
         IAppHost.GetService<IPluginMarketService>().LoadPluginSource();
-        
+
+        // 远程监控自启动恢复：若用户开启了远程监控，随启动自动恢复监控服务。
+        // 原实现在 BootService（IHostedService）里，但该服务从未被注册（AddHostedService 被注释），
+        // 自启动逻辑是死代码——重启后监控不会恢复，需手动到设置页重新开启。
+        // 放在此处：Settings / Profile / ManagementService 均已就绪（tunnel 上报依赖满足），
+        // fire-and-forget 不阻塞启动（下载 cloudflared 可能耗时）。
+        if (Settings.IsRemoteMonitorEnabled)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await GetService<Services.RemoteMonitor.RemoteMonitorService>().StartAsync();
+                    Logger.LogInformation("远程监控已随启动自动恢复");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "自动启动远程监控失败");
+                }
+            });
+        }
+
         if (!Settings.IsWelcomeWindowShowed || ApplicationCommand.Refreshing || ApplicationCommand.Onboarding)
         {
             if (Settings.IsSplashEnabled)
@@ -1114,6 +1135,17 @@ public partial class App : AppBase, IAppHost
                 connection.LogAuditEvent(AuditEvents.AppExited, new Empty());
             }
             AppStopping?.Invoke(this, EventArgs.Empty);
+            // 停止远程监控服务（内嵌 HTTP 服务器 + cloudflared 子进程），
+            // 否则退出后 cloudflared 进程残留、服务端 tunnel 信息不清理。
+            try
+            {
+                IAppHost.Host?.Services.GetService<Services.RemoteMonitor.RemoteMonitorService>()
+                    ?.StopAsync().Wait(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception exRemoteMonitor)
+            {
+                Logger?.LogWarning(exRemoteMonitor, "停止远程监控服务失败（不阻塞退出）");
+            }
             if (!partial)
             {
                 IAppHost.Host?.Services.GetService<ILessonsService>()?.StopMainTimer();

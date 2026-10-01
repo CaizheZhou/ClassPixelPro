@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -22,10 +23,26 @@ namespace ClassPixelPro.Services.RemoteMonitor;
 public sealed class CloudflaredManager : IDisposable
 {
     /// <summary>
-    /// cloudflared.exe 下载地址（通过 gh-proxy.org 加速）。
+    /// cloudflared.exe 下载地址列表（多源竞速）。公共代理速度波动大（快时数 MB/s，慢时几十 KB/s），
+    /// 单源下载经常非常慢；同时向多个源发起下载，最先完成者胜出，其余取消。
     /// </summary>
-    public const string DownloadUrl =
-        "https://gh-proxy.org/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe";
+    public static readonly string[] DownloadUrls =
+    [
+        // 公共 GitHub 加速代理（两家独立基础设施，互相回退）
+        "https://gh-proxy.com/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+        "https://gh-proxy.org/https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+        // 直连 GitHub（用户开启加速器/hosts 加速时此源最快）
+        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+    ];
+
+    /// <summary>兼容保留：默认（首选）下载地址。</summary>
+    public static readonly string DownloadUrl = DownloadUrls[0];
+
+    /// <summary>
+    /// 合法 cloudflared.exe 的最小体积（字节）。官方 amd64 版本约 55MB，
+    /// 用于剔除代理返回的错误页/半截文件。
+    /// </summary>
+    private const long MinValidExecutableSize = 40 * 1024 * 1024;
 
     /// <summary>
     /// 本地缓存目录，cloudflared.exe 下载到此目录下。
@@ -87,6 +104,11 @@ public sealed class CloudflaredManager : IDisposable
 
     /// <summary>
     /// 下载 cloudflared.exe 到本地缓存目录。如果已存在则跳过。
+    /// <para>
+    /// 多源竞速：同时向 <see cref="DownloadUrls"/> 中的所有源发起下载，
+    /// 第一个完成且文件有效的源胜出（写入最终路径），其余任务被取消并清理。
+    /// 单个公共代理速度波动大，竞速可显著缩短最坏情况下的等待时间。
+    /// </para>
     /// </summary>
     /// <param name="force">是否强制重新下载。</param>
     /// <param name="cancellationToken">取消令牌。</param>
@@ -105,48 +127,154 @@ public sealed class CloudflaredManager : IDisposable
             return;
         }
 
-        _logger.LogInformation("开始下载 cloudflared.exe：{Url}", DownloadUrl);
-        using var httpClient = new HttpClient();
-        // gh-proxy.org 偶尔不稳定，设置较长超时
-        httpClient.Timeout = TimeSpan.FromMinutes(10);
+        _logger.LogInformation("开始多源竞速下载 cloudflared.exe（{Count} 个源）", DownloadUrls.Length);
+        var startTime = Stopwatch.StartNew();
 
-        using var response = await httpClient.GetAsync(DownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using var raceCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var raceToken = raceCts.Token;
 
-        var total = response.Content.Headers.ContentLength ?? -1;
-        long downloaded = 0;
+        var tasks = DownloadUrls.Select(url => DownloadFromSingleSourceAsync(url, raceToken)).ToList();
+        string? winner = null;
+        Exception? lastError = null;
 
-        await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var fileStream = new FileStream(ExecutablePath + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None);
-        var buffer = new byte[81920];
-        int read;
-        while ((read = await contentStream.ReadAsync(buffer, cancellationToken)) > 0)
+        while (tasks.Count > 0 && winner == null)
         {
-            await fileStream.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            downloaded += read;
-            DownloadProgress?.Invoke(downloaded, total);
-
-            // 触发百分比进度事件（0.0-100.0）
-            if (total > 0)
+            var completed = await Task.WhenAny(tasks);
+            tasks.Remove(completed);
+            try
             {
-                var percent = (double)downloaded / total * 100.0;
-                DownloadProgressChanged?.Invoke(percent);
+                var tmpPath = await completed; // 失败会在这里抛出
+                if (ValidateDownloadedFile(tmpPath))
+                {
+                    winner = tmpPath;
+                }
+                else
+                {
+                    _logger.LogWarning("源下载完成但文件无效（大小/格式不符），等待其他源");
+                    TryDeleteFile(tmpPath);
+                }
             }
-            else
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // 无法获取总大小，报告 -1
-                DownloadProgressChanged?.Invoke(-1);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+                _logger.LogWarning(ex, "单个源下载失败，等待其他源");
             }
         }
 
-        // 下载完成，确保进度为 100%
-        DownloadProgressChanged?.Invoke(100.0);
+        if (winner == null)
+        {
+            _logger.LogError(lastError, "所有下载源均失败");
+            throw new InvalidOperationException($"cloudflared.exe 所有下载源均失败：{lastError?.Message}", lastError);
+        }
 
-        fileStream.Close();
-        // 原子替换
+        // 竞速结束：取消并清理剩余任务
+        raceCts.Cancel();
+        try
+        {
+            await Task.WhenAll(tasks);
+        }
+        catch
+        {
+            // 剩余任务被取消/失败属预期，忽略
+        }
+
+        // 原子替换为最终路径
         if (File.Exists(ExecutablePath)) File.Delete(ExecutablePath);
-        File.Move(ExecutablePath + ".tmp", ExecutablePath);
-        _logger.LogInformation("cloudflared.exe 下载完成：{Path}（{Size} 字节）", ExecutablePath, downloaded);
+        File.Move(winner, ExecutablePath);
+        startTime.Stop();
+        _logger.LogInformation("cloudflared.exe 竞速下载完成：{Path}（耗时 {Elapsed:F1}s）",
+            ExecutablePath, startTime.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>
+    /// 从单个源下载到独立的临时文件（每个源一个 .tmp.N 文件，互不冲突）。
+    /// 进度按"已完成字节数最多的源"汇总上报。
+    /// </summary>
+    private async Task<string> DownloadFromSingleSourceAsync(string url, CancellationToken cancellationToken)
+    {
+        var tmpPath = ExecutablePath + $".tmp.{Guid.NewGuid():N}";
+        long downloaded = 0;
+        long total = -1;
+
+        var httpClient = new HttpClient();
+        // 各源独立限时：超时/失败只淘汰该源，不影响其他源继续竞速
+        var perSourceCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        perSourceCts.CancelAfter(TimeSpan.FromMinutes(6));
+        try
+        {
+            httpClient.Timeout = Timeout.InfiniteTimeSpan; // 用 perSourceCts 控制整体限时
+
+            using var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, perSourceCts.Token);
+            response.EnsureSuccessStatusCode();
+
+            total = response.Content.Headers.ContentLength ?? -1;
+            if (total > 0 && total < MinValidExecutableSize)
+            {
+                throw new InvalidOperationException($"源响应体积异常（{total} 字节，疑似错误页）");
+            }
+
+            await using var contentStream = await response.Content.ReadAsStreamAsync(perSourceCts.Token);
+            await using var fileStream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = await contentStream.ReadAsync(buffer, perSourceCts.Token)) > 0)
+            {
+                await fileStream.WriteAsync(buffer.AsMemory(0, read), perSourceCts.Token);
+                downloaded += read;
+                DownloadProgress?.Invoke(downloaded, total);
+                // 触发百分比进度（多源竞速时显示最快源的进度）
+                DownloadProgressChanged?.Invoke(total > 0 ? (double)downloaded / total * 100.0 : -1);
+            }
+
+            _logger.LogInformation("源下载完成：{Url}（{Downloaded} 字节）", url, downloaded);
+            return tmpPath;
+        }
+        catch
+        {
+            TryDeleteFile(tmpPath);
+            throw;
+        }
+        finally
+        {
+            httpClient.Dispose();
+            perSourceCts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 校验下载产物：存在、体积不低于阈值、以 MZ（PE 可执行文件头）开头。
+    /// </summary>
+    private static bool ValidateDownloadedFile(string path)
+    {
+        try
+        {
+            var fi = new FileInfo(path);
+            if (!fi.Exists || fi.Length < MinValidExecutableSize) return false;
+
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            Span<byte> header = stackalloc byte[2];
+            return fs.Read(header) == 2 && header[0] == (byte)'M' && header[1] == (byte)'Z';
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "清理下载临时文件失败：{Path}", path);
+        }
     }
 
     /// <summary>
