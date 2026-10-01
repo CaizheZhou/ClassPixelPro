@@ -4,6 +4,19 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.26] - 2026-10-01
+
+### 优化
+- 远程监控性能大幅优化
+  - 客户端: GetCameras() 结果缓存 60 秒，避免 /status 端点每次探测 10 个摄像头耗时数秒
+  - 客户端: GetLocalIpAddress() 过滤虚拟网卡(Hyper-V/WSL/VPN/Docker)，优选物理网卡，返回多个候选 IP
+  - 客户端: HTTP 服务器启动即上报 LAN 信息，不等 cloudflared 下载完成
+  - 客户端: 按连接来源分档码率（局域网 maxFps=30/maxQuality=85，tunnel 保持 10-30fps/35-70）
+  - 前端: drawFrame 用 createImageBitmap 替代 new Image 解码（off-main-thread，帧率提升 30-50%）
+  - 前端: 加丢帧逻辑（WS 缓冲积压超 256KB 或积压超过 2 帧时丢帧）
+  - 前端: 多 IP 并行 Promise.any 尝试局域网连接，任一成功即用 local
+  - 前端: Canvas 分辨率自适应容器实际尺寸
+
 ## [2.1.2.24] - 2026-10-01
 
 ### 🐛 Bug 修复

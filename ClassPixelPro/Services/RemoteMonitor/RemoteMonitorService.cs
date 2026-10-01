@@ -144,7 +144,11 @@ public sealed class RemoteMonitorService : IDisposable
         _running = true;
         _logger.LogInformation("远程监控服务已启动");
 
-        // 2. cloudflared（仅 Windows）：后台下载（如缺失）→ 建立隧道，不阻塞 StartAsync
+        // 2. 立即上报 LAN 信息（localIp + localPort），不等 cloudflared 下载/建隧道。
+        //    局域网内班主任端可凭此直接访问，cloudflared 就绪后再补报 tunnelUrl。
+        _ = Task.Run(ReportLanInfoAsync);
+
+        // 3. cloudflared（仅 Windows）：后台下载（如缺失）→ 建立隧道，不阻塞 StartAsync
         if (OperatingSystem.IsWindows())
         {
             _ = Task.Run(() => EnsureTunnelLoopAsync(_serviceCts.Token));
@@ -433,6 +437,7 @@ public sealed class RemoteMonitorService : IDisposable
     // ===== 端点：GET /status =====
     private async Task HandleStatusAsync(HttpContext context, CancellationToken ct)
     {
+        // GetCameras() 内部已缓存 60 秒，避免每次 /status 都逐个打开 0-9 号摄像头探测
         var cameras = _cameraCapture.IsSupported ? _cameraCapture.GetCameras() : new List<CameraInfo>();
         var status = new
         {
@@ -443,6 +448,7 @@ public sealed class RemoteMonitorService : IDisposable
             currentCameraIndex = _cameraCapture.CurrentCameraIndex,
             tunnelUrl = TunnelUrl,
             localPort = LocalPort,
+            localIps = GetLocalIpAddresses(),
             timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
         };
         context.Response.ContentType = "application/json";
@@ -485,7 +491,17 @@ public sealed class RemoteMonitorService : IDisposable
     private async Task HandleCameraStreamAsync(HttpContext context, CancellationToken ct)
     {
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
-        _logger.LogInformation("摄像头 WebSocket 已连接");
+
+        // 按连接来源分档码率：
+        // - 局域网直连：带宽充足（通常 100Mbps+），提高画质上限与帧率下限
+        //   (maxQuality=85, minQuality=60, minFps=20, maxFps=30)
+        // - tunnel（cloudflared 本机转发，RemoteIp 为 loopback）或公网直连：
+        //   保持原保守参数 (maxQuality=70, minQuality=35, minFps=10, maxFps=30)，
+        //   避免隧道拥塞（2-5 Mbps）导致缓冲堆积数秒延迟。
+        var remoteIp = context.Connection.RemoteIpAddress;
+        var isLan = IsLanConnection(remoteIp);
+        _logger.LogInformation("摄像头 WebSocket 已连接，来源 {Ip}（{Type}）",
+            remoteIp, isLan ? "局域网" : "tunnel");
 
         // 注册活跃查看者
         Interlocked.Increment(ref _activeViewerCount);
@@ -497,12 +513,23 @@ public sealed class RemoteMonitorService : IDisposable
         // 数 MB = 数秒延迟。SendAsync 耗时是最佳的拥塞信号：缓冲空闲时瞬时完成，
         // 缓冲增长时耗时上升。据此动态调整 JPEG 质量与帧率，让码率贴合链路吞吐，
         // 缓冲不再堆积，延迟稳定在 RTT + 单帧。
-        const int minQuality = 35;
-        const int maxQuality = 70;
-        var jpegQuality = 55;              // 从中等起步（链路未知，宁可先流畅后清晰）
-        var currentFps = 20;
-        const int minFps = 10;
-        const int maxFps = 30;
+        int minQuality, maxQuality, minFps, maxFps;
+        if (isLan)
+        {
+            minQuality = 60;
+            maxQuality = 85;
+            minFps = 20;
+            maxFps = 30;
+        }
+        else
+        {
+            minQuality = 35;
+            maxQuality = 70;
+            minFps = 10;
+            maxFps = 30;
+        }
+        var jpegQuality = (minQuality + maxQuality) / 2;  // 从中点起步（链路未知，宁可先流畅后清晰）
+        var currentFps = (minFps + maxFps) / 2;
         var frameIntervalMs = 1000.0 / currentFps;
         var totalBytesSent = 0L;
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -675,6 +702,59 @@ public sealed class RemoteMonitorService : IDisposable
     }
 
     /// <summary>
+    /// 仅上报 LAN 信息（localIp/localPort）到集控后端，不等 cloudflared 就绪。
+    /// 在 HTTP 服务器启动后立即调用，让班主任端能尽快拿到局域网直连地址。
+    /// 复用 tunnel 端点，body 中 tunnelUrl/tunnelToken 为 null 表示"仅 LAN 信息"。
+    /// </summary>
+    private async Task ReportLanInfoAsync()
+    {
+        var managementBaseUrl = GetManagementBaseUrl();
+        if (string.IsNullOrEmpty(managementBaseUrl))
+        {
+            _logger.LogWarning("无法获取集控 base URL，跳过 LAN 信息上报");
+            return;
+        }
+
+        var cuid = GetClientUniqueId();
+        if (cuid == Guid.Empty)
+        {
+            _logger.LogWarning("无法获取 ClientUniqueId，跳过 LAN 信息上报");
+            return;
+        }
+
+        var tunnelApiUrl = $"{managementBaseUrl}/api/teacher/device/{cuid}/tunnel";
+        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+
+        var body = new
+        {
+            tunnelUrl = (string?)null,
+            tunnelToken = (string?)null,
+            localIp = GetLocalIpAddress(),
+            localIps = GetLocalIpAddresses(),
+            localPort = LocalPort,
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+        };
+        var json = JsonSerializer.Serialize(body);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        try
+        {
+            var resp = await httpClient.PostAsync(tunnelApiUrl, content);
+            if (resp.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("已上报 LAN 信息到服务端（localPort={Port}）", LocalPort);
+            }
+            else
+            {
+                _logger.LogWarning("上报 LAN 信息返回 {Status}", (int)resp.StatusCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "上报 LAN 信息失败");
+        }
+    }
+
+    /// <summary>
     /// 上报/清除 tunnel 信息到集控后端。
     /// url 为 null 时清除（DELETE），否则上报（POST）。
     /// </summary>
@@ -712,12 +792,13 @@ public sealed class RemoteMonitorService : IDisposable
         }
         else
         {
-            // 上报 tunnel 信息
+            // 上报 tunnel 信息（同时携带 LAN 信息，便于后端一次落库）
             var body = new
             {
                 tunnelUrl = url,
                 tunnelToken = Token,
                 localIp = GetLocalIpAddress(),
+                localIps = GetLocalIpAddresses(),
                 localPort = LocalPort,
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             };
@@ -766,20 +847,117 @@ public sealed class RemoteMonitorService : IDisposable
 
     /// <summary>
     /// 获取本机局域网 IP 地址（首选 IPv4）。
+    /// 返回 <see cref="GetLocalIpAddresses"/> 的首个候选，便于只需单个 IP 的调用点。
     /// </summary>
     private static string GetLocalIpAddress()
     {
+        var ips = GetLocalIpAddresses();
+        return ips.Count > 0 ? ips[0] : "127.0.0.1";
+    }
+
+    /// <summary>
+    /// 获取本机所有可用局域网 IPv4 地址，过滤虚拟网卡后按物理网卡优先排序。
+    /// </summary>
+    /// <remarks>
+    /// 原实现取 <see cref="Dns.GetHostEntry"/> 的第一个非 loopback IPv4，可能取到
+    /// Hyper-V/WSL/Docker/VirtualBox/VMware 等虚拟网卡 IP，导致上报的 localIp 无法
+    /// 在局域网内访问。现改为通过 <see cref="NetworkInterface"/> 枚举，按描述/名称
+    /// 过滤虚拟网卡，物理网卡 IP 排在前面，虚拟网卡 IP 作为兜底候选排在后面。
+    /// </remarks>
+    private static List<string> GetLocalIpAddresses()
+    {
+        var result = new List<string>();
         try
         {
-            var host = Dns.GetHostEntry(Dns.GetHostName());
-            var ip = host.AddressList.FirstOrDefault(a =>
-                a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a));
-            return ip?.ToString() ?? "127.0.0.1";
+            // 虚拟网卡描述/名称关键字（小写匹配）
+            var virtualKeywords = new[]
+            {
+                "hyper-v", "wsl", "vpn", "docker", "virtualbox", "vmware",
+                "loopback", "vethernet", "tap", "tun"
+            };
+
+            var physicalIps = new List<string>();
+            var virtualIps = new List<string>();
+
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+
+                var desc = (ni.Description ?? string.Empty).ToLowerInvariant();
+                var name = (ni.Name ?? string.Empty).ToLowerInvariant();
+                var isVirtual = virtualKeywords.Any(k => desc.Contains(k) || name.Contains(k));
+
+                foreach (var ip in ni.GetIPProperties().UnicastAddresses)
+                {
+                    if (ip.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    if (IPAddress.IsLoopback(ip.Address)) continue;
+                    var ipStr = ip.Address.ToString();
+                    if (isVirtual)
+                    {
+                        virtualIps.Add(ipStr);
+                    }
+                    else
+                    {
+                        physicalIps.Add(ipStr);
+                    }
+                }
+            }
+
+            // 物理网卡优先，虚拟网卡兜底
+            result.AddRange(physicalIps);
+            result.AddRange(virtualIps);
+
+            // 完全没拿到时回退到 DNS 解析（保留原行为兜底）
+            if (result.Count == 0)
+            {
+                var host = Dns.GetHostEntry(Dns.GetHostName());
+                var fallback = host.AddressList
+                    .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a))
+                    .Select(a => a.ToString())
+                    .ToList();
+                result.AddRange(fallback);
+            }
+
+            if (result.Count == 0)
+            {
+                result.Add("127.0.0.1");
+            }
         }
         catch
         {
-            return "127.0.0.1";
+            if (result.Count == 0)
+            {
+                result.Add("127.0.0.1");
+            }
         }
+        return result;
+    }
+
+    /// <summary>
+    /// 判断连接来源是否为局域网直连（非 loopback 的私有 IPv4）。
+    /// </summary>
+    /// <remarks>
+    /// cloudflared 在本机转发请求到 HTTP 服务器，<see cref="HttpContext.Connection.RemoteIpAddress"/>
+    /// 为 loopback (127.0.0.1/::1)，据此与局域网内其他设备的直连区分开。
+    /// 公网 IP 也返回 false（走 tunnel 保守参数）。
+    /// </remarks>
+    private static bool IsLanConnection(IPAddress? remoteIp)
+    {
+        if (remoteIp == null) return false;
+        if (IPAddress.IsLoopback(remoteIp)) return false; // cloudflared 本机转发
+        if (remoteIp.AddressFamily != AddressFamily.InterNetwork) return false;
+
+        var bytes = remoteIp.GetAddressBytes();
+        if (bytes.Length != 4) return false;
+
+        // RFC 1918 私有地址段：
+        //   10.0.0.0/8、172.16.0.0/12（172.16-172.31）、192.168.0.0/16
+        // 链路本地 169.254.0.0/16 不算可用的局域网直连。
+        if (bytes[0] == 10) return true;
+        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+        if (bytes[0] == 192 && bytes[1] == 168) return true;
+        return false;
     }
 
     public void Dispose()

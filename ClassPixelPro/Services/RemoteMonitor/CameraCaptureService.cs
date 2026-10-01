@@ -40,6 +40,13 @@ public sealed class CameraCaptureService : IDisposable
     private const int MaxConsecutiveFailures = 10;
     private bool _disposed;
 
+    // GetCameras() 结果缓存：逐个打开 0-9 号摄像头探测耗时数秒，
+    // /status 端点每次调用都探测会导致前端频繁刷新时累计卡顿。缓存 60 秒。
+    private static List<CameraInfo>? _camerasCache;
+    private static DateTime _camerasCacheTime;
+    private static readonly object _camerasCacheLock = new();
+    private static readonly TimeSpan CamerasCacheTtl = TimeSpan.FromSeconds(60);
+
     public CameraCaptureService(ILogger<CameraCaptureService> logger)
     {
         _logger = logger;
@@ -61,15 +68,26 @@ public sealed class CameraCaptureService : IDisposable
     /// <remarks>
     /// OpenCV 无法直接枚举摄像头名称，此处通过逐个尝试打开索引 0-9 来探测可用设备。
     /// 仅在 Windows 上执行探测；其他平台返回空列表。
+    /// 探测结果缓存 60 秒（<see cref="CamerasCacheTtl"/>），避免 /status 端点每次调用
+    /// 都逐个打开 10 个摄像头（累计耗时数秒）。
     /// </remarks>
     public List<CameraInfo> GetCameras()
     {
-        var result = new List<CameraInfo>();
         if (!OperatingSystem.IsWindows())
         {
-            return result;
+            return new List<CameraInfo>();
         }
 
+        // 命中缓存直接返回副本，避免外部修改污染缓存
+        lock (_camerasCacheLock)
+        {
+            if (_camerasCache != null && DateTime.UtcNow - _camerasCacheTime < CamerasCacheTtl)
+            {
+                return new List<CameraInfo>(_camerasCache);
+            }
+        }
+
+        var result = new List<CameraInfo>();
         for (int i = 0; i < 10; i++)
         {
             try
@@ -95,6 +113,14 @@ public sealed class CameraCaptureService : IDisposable
         {
             _logger.LogWarning("未检测到可用摄像头");
         }
+
+        // 写入缓存（替换旧值，下次 60 秒内直接命中）
+        lock (_camerasCacheLock)
+        {
+            _camerasCache = result;
+            _camerasCacheTime = DateTime.UtcNow;
+        }
+
         return result;
     }
 
