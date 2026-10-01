@@ -4,7 +4,9 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using ClassPixelPro.Services;
+using ClassPixelPro.Services.Management;
 using ClassPixelPro.Services.RemoteMonitor;
+using ClassPixelPro.Shared.Enums;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -19,6 +21,11 @@ namespace ClassPixelPro.ViewModels.SettingsPages;
 /// 监控启用开关（<c>IsRemoteMonitorEnabled</c>）和指示器开关（<c>IsMonitorIndicatorEnabled</c>）
 /// 直接双向绑定到 <see cref="Settings"/>，由 <see cref="SettingsService"/> 自动持久化。
 /// 本 ViewModel 仅负责派生状态（如 cloudflared 就绪、tunnel URL、摄像头列表）和命令。
+/// <para>
+/// 前置条件门禁：开启远程监控的前提是<strong>已加入集控且已绑定班主任</strong>——
+/// 该功能会把摄像头/屏幕暴露到公网，必须确保有明确的归属与责任人；未满足时
+/// 开关禁用并显示原因（<see cref="PrerequisiteMessage"/>）。
+/// </para>
 /// </remarks>
 public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
 {
@@ -27,8 +34,11 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     private readonly CameraCaptureService _cameraCaptureService;
     private readonly CloudflaredManager _cloudflaredManager;
     private readonly ScreenCaptureService _screenCaptureService;
+    private readonly ManagementService _managementService;
+    private readonly Services.RemoteMonitor.TeacherBindingGate _teacherBindingGate;
     private readonly ILogger<RemoteMonitorSettingsViewModel> _logger;
     private readonly DispatcherTimer _statusRefreshTimer;
+
 
     public SettingsService SettingsService => _settingsService;
     public RemoteMonitorService RemoteMonitorService => _remoteMonitorService;
@@ -124,12 +134,35 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     /// </summary>
     [ObservableProperty] private bool _isInitializing;
 
+    /// <summary>
+    /// 是否已加入集控。未加入时远程监控不可用。
+    /// </summary>
+    [ObservableProperty] private bool _isManagementReady;
+
+    /// <summary>
+    /// 是否已绑定班主任（服务端 /api/teacher/bindings/status 查询结果）。
+    /// </summary>
+    [ObservableProperty] private bool _isTeacherBound;
+
+    /// <summary>
+    /// 前置条件不满足时的提示文案（显示在页面顶部横幅与开关旁）。
+    /// 满足时为空。
+    /// </summary>
+    [ObservableProperty] private string _prerequisiteMessage = "";
+
+    /// <summary>
+    /// 远程监控开关是否可用（前置条件满足且不在操作中）。
+    /// </summary>
+    public bool CanToggleMonitor => (IsManagementReady && IsTeacherBound) && !IsBusy;
+
     public RemoteMonitorSettingsViewModel(
         SettingsService settingsService,
         RemoteMonitorService remoteMonitorService,
         CameraCaptureService cameraCaptureService,
         CloudflaredManager cloudflaredManager,
         ScreenCaptureService screenCaptureService,
+        ManagementService managementService,
+        Services.RemoteMonitor.TeacherBindingGate teacherBindingGate,
         ILogger<RemoteMonitorSettingsViewModel> logger)
     {
         _settingsService = settingsService;
@@ -137,6 +170,8 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
         _cameraCaptureService = cameraCaptureService;
         _cloudflaredManager = cloudflaredManager;
         _screenCaptureService = screenCaptureService;
+        _managementService = managementService;
+        _teacherBindingGate = teacherBindingGate;
         _logger = logger;
 
         _cloudflaredManager.TunnelReady += OnTunnelReady;
@@ -162,6 +197,9 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
             RefreshStatus();
             IsMonitoring = _remoteMonitorService.IsRunning;
 
+            // 前置条件检查：已加入集控 + 已绑定班主任（页面加载时查询一次）
+            await RefreshPrerequisitesAsync();
+
             // 摄像头枚举需要逐个尝试打开设备索引，耗时较长，放到后台线程执行
             await RefreshCamerasInternalAsync();
         }
@@ -170,6 +208,31 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
             IsInitializing = false;
         }
     }
+
+    /// <summary>
+    /// 刷新前置条件状态：是否已加入集控、是否已绑定班主任，并生成提示文案。
+    /// 绑定状态通过集控后端 /api/teacher/bindings/status 实时查询。
+    /// </summary>
+    public async Task RefreshPrerequisitesAsync()
+    {
+        IsManagementReady = _managementService.IsManagementEnabled;
+        IsTeacherBound = false;
+
+        if (!IsManagementReady)
+        {
+            PrerequisiteMessage = "远程监控仅在加入集控后可用：请先在「集控」设置中加入集控，并由班主任完成设备绑定。";
+            OnPropertyChanged(nameof(CanToggleMonitor));
+            return;
+        }
+
+        var bound = await _teacherBindingGate.IsTeacherBoundAsync();
+        IsTeacherBound = bound;
+        PrerequisiteMessage = bound
+            ? ""
+            : "远程监控需要先绑定班主任：请联系班主任在教师端完成本设备的绑定后，重试或刷新本页。";
+        OnPropertyChanged(nameof(CanToggleMonitor));
+    }
+
 
     /// <summary>
     /// 同步初始化（兼容旧调用方）。耗时操作以 fire-and-forget 方式在后台执行。
@@ -272,6 +335,23 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     private async Task ToggleRemoteMonitorAsync()
     {
         if (IsBusy) return;
+
+        // 前置条件门禁：必须已加入集控且已绑定班主任。开关的 CheckedChanged 已把
+        // Settings 翻转，这里先实时复核一次前置条件，不满足则回滚开关——
+        // 原因显示在页面顶部横幅（PrerequisiteMessage）。
+        if (_settingsService.Settings.IsRemoteMonitorEnabled)
+        {
+            await RefreshPrerequisitesAsync();
+            if (!(IsManagementReady && IsTeacherBound))
+            {
+                _settingsService.Settings.IsRemoteMonitorEnabled = false;
+                _logger.LogWarning("远程监控开启被拦截：前置条件不满足（集控={Mgmt}，绑定={Bound}）",
+                    IsManagementReady, IsTeacherBound);
+                OnPropertyChanged(nameof(CanToggleMonitor));
+                return;
+            }
+        }
+
         IsBusy = true;
         try
         {

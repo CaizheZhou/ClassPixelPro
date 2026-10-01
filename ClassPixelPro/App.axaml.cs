@@ -770,13 +770,31 @@ public partial class App : AppBase, IAppHost
         // 自启动逻辑是死代码——重启后监控不会恢复，需手动到设置页重新开启。
         // 放在此处：Settings / Profile / ManagementService 均已就绪（tunnel 上报依赖满足），
         // fire-and-forget 不阻塞启动（下载 cloudflared 可能耗时）。
+        // 前置条件门禁：必须已加入集控且已绑定班主任（摄像头暴露到公网，安全优先）。
         if (Settings.IsRemoteMonitorEnabled)
         {
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await GetService<Services.RemoteMonitor.RemoteMonitorService>().StartAsync();
+                    var remoteMonitor = GetService<Services.RemoteMonitor.RemoteMonitorService>();
+                    var management = GetService<IManagementService>();
+                    if (!management.IsManagementEnabled)
+                    {
+                        Logger.LogWarning("远程监控自启动跳过：未加入集控");
+                        return;
+                    }
+
+                    // 查询班主任绑定状态；未绑定或查询失败均不启动（宁可漏启，不可错启）
+                    var bound = await GetService<Services.RemoteMonitor.TeacherBindingGate>()
+                        .IsTeacherBoundAsync();
+                    if (!bound)
+                    {
+                        Logger.LogWarning("远程监控自启动跳过：未绑定班主任或查询失败");
+                        return;
+                    }
+
+                    await remoteMonitor.StartAsync();
                     Logger.LogInformation("远程监控已随启动自动恢复");
                 }
                 catch (Exception ex)

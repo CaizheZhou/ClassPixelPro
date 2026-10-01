@@ -108,6 +108,7 @@ public partial class App
         services.AddSingleton<AudioPlaybackService>();
         services.AddSingleton<CloudflaredManager>();
         services.AddSingleton<RemoteMonitorService>();
+        services.AddSingleton<Services.RemoteMonitor.TeacherBindingGate>();
         // ViewModels
         services.AddTransient<ProfileSettingsViewModel>();
         services.AddTransient<DevPortalViewModel>();

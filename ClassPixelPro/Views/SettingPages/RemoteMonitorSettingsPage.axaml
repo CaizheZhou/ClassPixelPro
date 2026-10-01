@@ -18,8 +18,22 @@
         <StackPanel Classes="settings-container animated-intro">
             <controls1:IconText Glyph="&#xE8B6;" Text="远程监控" Margin="0 0 0 4" />
 
-            <!-- 功能说明横幅 -->
-            <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
+            <!-- 前置条件横幅：未加入集控或未绑定班主任时显示，替代功能说明 -->
+            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static ObjectConverters.IsNotNullOrEmpty}}"
+                    Background="{DynamicResource InfoBarWarningSeverityBrush}"
+                    Padding="16 12"
+                    CornerRadius="8"
+                    Margin="0 0 0 8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ci:FluentIcon Glyph="&#xE7BA;" FontSize="16" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding ViewModel.PrerequisiteMessage}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- 功能说明横幅（前置条件满足时显示） -->
+            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static ObjectConverters.IsNullOrEmpty}}"
+                    Background="{DynamicResource ControlFillColorDefaultBrush}"
                     Padding="16 12"
                     CornerRadius="8"
                     Margin="0 0 0 8">
@@ -34,7 +48,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- 监控功能开关 -->
+            <!-- 监控功能开关（前置条件不满足时禁用） -->
             <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE8B6;}"
                                         Header="启用远程监控"
                                         Description="启动内嵌 HTTP 服务器与 Cloudflare Tunnel，将本机暴露到公网供班主任远程访问。"
@@ -42,7 +56,7 @@
                 <controls3:SettingsExpander.Footer>
                     <ToggleSwitch IsChecked="{Binding ViewModel.SettingsService.Settings.IsRemoteMonitorEnabled, Mode=TwoWay}"
                                   IsCheckedChanged="ToggleRemoteMonitor_OnIsCheckedChanged"
-                                  IsEnabled="{Binding !ViewModel.IsBusy}" />
+                                  IsEnabled="{Binding ViewModel.CanToggleMonitor}" />
                 </controls3:SettingsExpander.Footer>
                 <!-- 监控指示器开关 -->
                 <controls3:SettingsExpanderItem Content="显示监控指示器"
