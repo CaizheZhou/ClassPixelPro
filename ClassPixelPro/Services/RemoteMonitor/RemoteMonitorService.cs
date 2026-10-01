@@ -571,6 +571,9 @@ public sealed class RemoteMonitorService : IDisposable
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
         _logger.LogInformation("音频 WebSocket 已连接");
 
+        // 新连接建立时清空上一次传话的残留缓冲
+        _audioPlayback.ClearBuffer();
+
         // 注册活跃查看者
         Interlocked.Increment(ref _activeViewerCount);
         ActiveViewerChanged?.Invoke();
@@ -603,9 +606,9 @@ public sealed class RemoteMonitorService : IDisposable
 
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
-                    // 文本控制消息：{"type":"end"} 表示教师端说完
-                    _logger.LogInformation("收到传话控制消息：{Text}", System.Text.Encoding.UTF8.GetString(data));
-                    _audioPlayback.ClearBuffer();
+                    // 教师端说完，不清空缓冲区——让已接收的音频自然播放完毕
+                    // 清空会在下一次传话连接建立时执行
+                    _logger.LogInformation("收到传话控制消息：{Text}，等待缓冲区播放完毕", System.Text.Encoding.UTF8.GetString(data));
                     continue;
                 }
 

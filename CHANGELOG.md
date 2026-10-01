@@ -4,6 +4,14 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.24] - 2026-10-01
+
+### 🐛 Bug 修复
+
+- **修复传话功能声音卡顿不清晰**：采样率从 16kHz 提升到 48kHz，音频缓冲区从 2 秒增大到 5 秒，ScriptProcessor 缓冲从 4096 增大到 8192
+- **修复传话收音不全**：停止录音后 flush 时间从 300ms 增加到 2000ms，延迟 200ms 发送结束标记确保最后音频帧已发送，客户端不再立即清空缓冲区而是让音频自然播放完毕
+- **消除传话回声**：用 GainNode(0) 替代直接连接 destination，避免班主任听到自己的声音回放
+
 ## [2.1.2.23] - 2026-10-01
 
 DI 容器修复热补丁：修复客户端启动时因 `ManagementService` 具体类型未注册导致的激活失败。

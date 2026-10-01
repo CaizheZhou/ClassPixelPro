@@ -19,7 +19,7 @@ public sealed class AudioPlaybackService : IDisposable
     private readonly object _playbackLock = new();
     private WaveOutEvent? _waveOut;
     private BufferedWaveProvider? _bufferedProvider;
-    private WaveFormat _waveFormat = new(16000, 16, 1);
+    private WaveFormat _waveFormat = new(48000, 16, 1);
     private bool _disposed;
 
     public AudioPlaybackService(ILogger<AudioPlaybackService> logger)
@@ -53,7 +53,7 @@ public sealed class AudioPlaybackService : IDisposable
             {
                 _bufferedProvider = new BufferedWaveProvider(_waveFormat)
                 {
-                    BufferDuration = TimeSpan.FromSeconds(2),
+                    BufferDuration = TimeSpan.FromSeconds(5),
                     DiscardOnBufferOverflow = true,
                 };
                 _waveOut?.Init(_bufferedProvider);
@@ -106,7 +106,7 @@ public sealed class AudioPlaybackService : IDisposable
 
         _bufferedProvider = new BufferedWaveProvider(_waveFormat)
         {
-            BufferDuration = TimeSpan.FromSeconds(2),
+            BufferDuration = TimeSpan.FromSeconds(5),
             DiscardOnBufferOverflow = true,
         };
 
