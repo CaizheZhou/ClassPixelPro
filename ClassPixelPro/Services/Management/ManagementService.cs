@@ -710,13 +710,25 @@ public class ManagementService : ObservableRecipient, IManagementService
             }
             if (newTempClassPlan != null)
             {
-                SaveConfig(ManagementTempClassPlanPath, newTempClassPlan);
-                Versions.TempClassPlanVersion = newManifest.TempClassPlanSource.Value.Version;
-                // 应用临时课表到当前档案的临时层
-                var applied = await ApplyTempClassPlanAsync();
+                // 修复：只有真正应用成功才推进本地版本号并落盘载荷。
+                // 原实现先无条件保存载荷 + 推进版本号，再尝试应用。若服务端返回空载荷
+                // （例如设备处于 no_classplan 模式、或服务端内容源取不到数据），
+                // ApplyTempClassPlanAsync 会失败，但版本号已被记成"已同步"，
+                // 于是 IsNewerAndNotNull 永远为 false，客户端再也不重试——
+                // 表现为"服务端明明有临时课表，软件端永远不更新"，且没有任何错误提示。
+                // 现在改为：应用失败时保留旧版本号，下一轮轮询会自动重试。
+                var applied = await ApplyTempClassPlanAsync(newTempClassPlan);
                 if (applied)
                 {
+                    SaveConfig(ManagementTempClassPlanPath, newTempClassPlan);
+                    Versions.TempClassPlanVersion = newManifest.TempClassPlanSource.Value.Version;
                     Logger.LogInformation("已拉取并应用集控临时调课课表，版本 {Version}", Versions.TempClassPlanVersion);
+                }
+                else
+                {
+                    Logger.LogWarning(
+                        "集控临时调课课表应用失败（服务端版本 {Remote}），保留本地版本 {Local}，下一轮轮询将重试",
+                        newManifest.TempClassPlanSource.Value.Version, Versions.TempClassPlanVersion);
                 }
             }
             else if (tempClassPlanDeleted)
@@ -895,20 +907,33 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// 从中提取"今天"对应的 ClassPlan 作为 overlay，同时同步 Subjects/TimeLayouts 到当前 Profile。</item>
     /// </list>
     /// </para>
+    /// <para>
+    /// <paramref name="downloaded"/> 为本次从服务端拉取到的载荷；为 <c>null</c> 时回退到读取
+    /// <see cref="ManagementTempClassPlanPath"/> 缓存文件（供启动时/手动触发复用的旧调用点）。
+    /// </para>
     /// </summary>
-    public async Task<bool> ApplyTempClassPlanAsync()
+    public async Task<bool> ApplyTempClassPlanAsync(object? downloaded = null)
     {
         try
         {
-            if (!File.Exists(ManagementTempClassPlanPath))
+            string json;
+            if (downloaded != null)
             {
-                return false;
+                json = System.Text.Json.JsonSerializer.Serialize(downloaded, JsonHelperOptions);
+            }
+            else
+            {
+                if (!File.Exists(ManagementTempClassPlanPath))
+                {
+                    return false;
+                }
+
+                json = await File.ReadAllTextAsync(ManagementTempClassPlanPath);
             }
 
-            var json = await File.ReadAllTextAsync(ManagementTempClassPlanPath);
             if (string.IsNullOrWhiteSpace(json))
             {
-                Logger.LogWarning("集控临时调课课表文件为空，跳过应用");
+                Logger.LogWarning("集控临时调课课表内容为空，跳过应用");
                 return false;
             }
 

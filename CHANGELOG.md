@@ -4,6 +4,17 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.29] - 2026-10-01
+
+### 修复
+- 班主任端修改临时课表后客户端不更新：空载荷会"毒死"本地版本号导致永不重试。
+  原实现先把服务端返回的载荷无条件落盘并推进 `Versions.TempClassPlanVersion`，再尝试应用。
+  若服务端返回空载荷（如设备处于非课表模式、或内容源取不到数据），应用失败但版本号已被记为"已同步"，
+  于是 `IsNewerAndNotNull` 恒为 false，客户端再也不拉取，且没有任何错误提示。
+  现在改为只有应用成功才推进版本号并落盘；失败时保留旧版本号，下一轮轮询自动重试并输出警告日志
+- 临时课表应用改为直接使用本轮拉取到的载荷（`ApplyTempClassPlanAsync(object? downloaded)`），
+  不再依赖磁盘缓存文件，避免"已拉取但未落盘"时读到上一次的内容
+
 ## [2.1.2.28] - 2026-10-01
 
 ### 修复
