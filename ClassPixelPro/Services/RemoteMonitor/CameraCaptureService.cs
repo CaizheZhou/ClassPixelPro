@@ -114,10 +114,11 @@ public sealed class CameraCaptureService : IDisposable
             {
                 try
                 {
-                    using var probe = new VideoCapture(i, VideoCaptureAPIs.DSHOW);
+                    using var probe = new VideoCapture(i, VideoCaptureAPIs.MSMF);
                     if (probe.IsOpened())
                     {
                         result.Add(new CameraInfo { Index = i, Name = $"摄像头 {i}", IsDefault = i == 0 });
+                        probe.Release();
                     }
                 }
                 catch
@@ -178,7 +179,17 @@ public sealed class CameraCaptureService : IDisposable
     private void OpenCamera()
     {
         _capture?.Dispose();
-        _capture = new VideoCapture(_currentIndex, VideoCaptureAPIs.DSHOW);
+        // MSMF 优先：实测该后端能干净地打开设备并返回真实后端名；
+        // DSHOT 后端在本机打开不存在的索引时不报错而是回落默认设备，还会刷 QI 错误，
+        // 这正是此前「采集连续失败 → 重开摄像头」的来源。仅在 MSMF 打不开时回退 DSHOW。
+        _capture = new VideoCapture(_currentIndex, VideoCaptureAPIs.MSMF);
+        if (!_capture.IsOpened())
+        {
+            _capture.Release();
+            _capture.Dispose();
+            _logger.LogWarning("MSMF 后端打开摄像头 {Index} 失败，回退 DSHOW", _currentIndex);
+            _capture = new VideoCapture(_currentIndex, VideoCaptureAPIs.DSHOW);
+        }
         if (_capture.IsOpened())
         {
             // 设置分辨率 1280x720（720p）保证画质

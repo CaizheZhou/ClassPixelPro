@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.3.3] - 2026-10-02
+
+### 修复
+- 摄像头采集后端改为 MSMF 优先、DSHOW 兜底：实测本机 DSHOW 后端打开不存在的索引时
+  不报错而是回落到默认设备，并持续输出 QI 错误——这正是此前「连续 10 次采集失败 →
+  重开摄像头」的来源；MSMF 后端能干净地打开设备并返回真实后端名
+- 摄像头名称与数量改用 WMI 查询 Win32_PnPEntity：DirectShow 设备枚举器在本类目标机
+  未注册（REGDB_E_CLASSNOTREG），SetupAPI 枚举在该机返回 0 个，WMI 稳定返回真实结果
+  （如 1 个「USB2.0 HD UVC WebCam」）
+
 ## [2.2.3.2] - 2026-10-02
 
 ### 修复
