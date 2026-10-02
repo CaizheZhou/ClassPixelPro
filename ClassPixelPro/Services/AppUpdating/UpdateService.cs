@@ -220,9 +220,18 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
 
     private async Task AppStartupBackground()
     {
+        // 修复：旧版本目录堆积。CleanupPrevDeployments 原先只在「更新后首次启动且
+        // LastUpdateStatus == UpdateDeployed」这唯一一次机会被调用；而那一刻旧进程
+        // 往往尚未完全退出、文件仍被占用，删除失败后异常被捕获仅记日志，
+        // 状态随即转为 UpToDate，此后永远不会重试——表现为 app-<旧版本> 目录
+        // 每次 更新 后都留下 一个，永不清理。
+        // 该方法只删除带 .destroy 标记的目录（标记在部署新版本时写入旧版本目录，
+        // 不可能是当前正在运行的版本），因此每次启动调用一次是安全的：
+        // 本次因文件占用删不掉的目录，下次启动会自动补删。
+        CleanupPrevDeployments();
+
         if (Settings.LastUpdateStatus == UpdateStatus.UpdateDeployed)
         {
-            CleanupPrevDeployments();
             await PlatformServices.DesktopToastService.ShowToastAsync("更新成功",
                 $"应用已更新到 {AppBase.AppVersion}，点击以查看详细信息。", UpdateNotificationClickedCallback);
             Settings.LastUpdateStatus = UpdateStatus.UpToDate;
