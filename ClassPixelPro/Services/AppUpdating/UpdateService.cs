@@ -1080,7 +1080,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
     {
         var root = CommonDirectories.AppPackageRoot;
         foreach (var deployment in Directory.GetDirectories(root)
-                     .Where(x => Path.GetFileName(x).StartsWith("app") 
+                     .Where(x => Path.GetFileName(x).StartsWith("app")
                                  && Path.GetFullPath(Path.Combine(root, x)) != Path.GetFullPath(Environment.CurrentDirectory)
                                  && File.Exists(Path.Combine(x, ".destroy"))))
         {
@@ -1092,6 +1092,26 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
             catch (Exception e)
             {
                 Logger.LogError(e, "无法清理部署 {}", deployment);
+            }
+        }
+
+        // 补充清理：上面的递归删除可能在删完内容后因目录句柄被短暂占用而失败，
+        // 只留下空目录——此时 .destroy 标记已随内容一并删除，上面的循环下次不会再尝试，
+        // 空目录将永久残留。空的 app-* 目录不可能是有效安装（启动器要求其中存在
+        // 可执行文件），因此这里直接移除所有空的非当前 app-* 目录。
+        foreach (var deployment in Directory.GetDirectories(root)
+                     .Where(x => Path.GetFileName(x).StartsWith("app")
+                                 && Path.GetFullPath(Path.Combine(root, x)) != Path.GetFullPath(Environment.CurrentDirectory)
+                                 && !Directory.EnumerateFileSystemEntries(x).Any()))
+        {
+            Logger.LogInformation("正在清理残留的空部署目录：{}", deployment);
+            try
+            {
+                Directory.Delete(deployment);
+            }
+            catch (Exception e)
+            {
+                Logger.LogError(e, "无法清理空部署目录 {}", deployment);
             }
         }
     }
