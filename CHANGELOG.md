@@ -4,6 +4,13 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.1] - 2026-10-02
+
+### 修复
+- 班主任通知拉取 URL 缺少组织前缀：GetManagementBaseUrl() 只返回源站，
+  拼出的请求缺少 /api/mgmt/{orgId} 导致 404。改为从 ManifestUrlTemplate 截取
+  /serverless 前缀，与 manifest 请求保持同一组织
+
 ## [2.2.0] - 2026-10-02
 
 ### 新增

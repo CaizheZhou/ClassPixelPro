@@ -29,11 +29,15 @@ public class TeacherNotificationPullService
         if (!ManagementService.IsManagementEnabled || ManagementService.Connection is not ServerlessConnection connection)
             return;
 
-        var baseUrl = ManagementService.GetManagementBaseUrl();
-        if (string.IsNullOrEmpty(baseUrl))
+        // GetManagementBaseUrl() 只返回源站（不含 /api/mgmt/{orgId} 路径），
+        // serverless 接口的组织前缀从 ManifestUrlTemplate 中截取，
+        // 与 manifest 请求走同一组织，避免两处组织不一致。
+        var template = ManagementService.Settings.ManifestUrlTemplate;
+        var idx = template?.IndexOf("/serverless/", StringComparison.Ordinal) ?? -1;
+        if (idx <= 0)
             return;
 
-        var url = $"{baseUrl}/serverless/notification?cuid={ManagementService.Persist.ClientUniqueId}";
+        var url = $"{template!.Substring(0, idx)}/serverless/notification?cuid={ManagementService.Persist.ClientUniqueId}";
         var result = await connection.GetJsonAsync<TeacherNotificationList>(url);
         if (result?.Notifications is not { Count: > 0 } list)
             return;
