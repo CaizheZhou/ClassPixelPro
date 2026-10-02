@@ -141,6 +141,10 @@ public sealed class RemoteMonitorService : IDisposable
         StartHttpServer();
         _logger.LogInformation("HTTP 服务器已启动，端口 {Port}，token={Token}", LocalPort, Token);
 
+        // 每次启动都用当前 exe 路径重建防火墙入站规则：自动更新会换 app-<版本> 目录，
+        // Windows 按旧路径记录的放行规则随即失效，局域网直连（教师手机）会被拦截。
+        FirewallHelper.EnsureInboundRule(LocalPort, msg => _logger.LogInformation("{Msg}", msg));
+
         _running = true;
         _logger.LogInformation("远程监控服务已启动");
 
@@ -624,6 +628,19 @@ public sealed class RemoteMonitorService : IDisposable
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
         _logger.LogInformation("音频 WebSocket 已连接");
 
+        // 喊话「以最大音量播放」：班主任端在 URL 上带 maxVolume=1。
+        // 音量在连接期间提升，连接关闭时恢复原音量（对讲结束 = 连接结束）。
+        MasterVolumeController.VolumeRestoreHandle? talkVolume = null;
+        if (context.Request.Query.TryGetValue("maxVolume", out var mv) &&
+            (mv == "1" || string.Equals(mv.ToString(), "true", StringComparison.OrdinalIgnoreCase)))
+        {
+            talkVolume = MasterVolumeController.Begin();
+            if (talkVolume != null)
+            {
+                _logger.LogInformation("喊话将以系统最大音量播放（播完后恢复）");
+            }
+        }
+
         // 新连接建立时清空上一次传话的残留缓冲
         _audioPlayback.ClearBuffer();
 
@@ -678,6 +695,7 @@ public sealed class RemoteMonitorService : IDisposable
         }
         finally
         {
+            MasterVolumeController.Restore(talkVolume);
             _logger.LogInformation("音频 WebSocket 已断开");
             // 注意：这里不释放摄像头——传话与摄像头是两条独立 WS，
             // 原实现在传话结束时误释放摄像头，导致远程画面中断。
