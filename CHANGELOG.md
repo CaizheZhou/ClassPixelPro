@@ -4,6 +4,17 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.3.1] - 2026-10-02
+
+### 修复
+- 隧道地址被写成字符串 "null" 导致教师端监控连不上：客户端上报 LAN 信息时 tunnelUrl
+  传 null，服务端用 String(b.tunnelUrl) 把 null 转成了字符串 "null" 存库，
+  教师端拿到该值会去连 wss://null/…，表现为监控一直没画面且无任何报错。
+  服务端改为缺省即存 NULL
+- 隧道信息只上报一次，偶发失败即永久失效：改为失败重试 3 次；
+  并在隧道就绪后每 30 秒重报一次——cloudflared quick tunnel 断线重建会换地址，
+  定期重报让教师端及时拿到有效地址，同时自愈偶发失败
+
 ## [2.2.3.0] - 2026-10-02
 
 ### 变更

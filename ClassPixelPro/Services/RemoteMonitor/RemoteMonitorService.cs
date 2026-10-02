@@ -58,6 +58,9 @@ public sealed class RemoteMonitorService : IDisposable
     /// 用 Interlocked 保证线程安全。
     /// </summary>
     private int _activeViewerCount;
+    // 最近一次就绪的隧道地址（定期重报用）
+    private string? _lastTunnelUrl;
+    private Timer? _tunnelReportTimer;
 
     /// <summary>
     /// 截图请求短期活跃计时器。每次截图请求重置此计时器，
@@ -250,6 +253,8 @@ public sealed class RemoteMonitorService : IDisposable
         }
 
         // 4. 释放摄像头
+        _tunnelReportTimer?.Dispose();
+        _tunnelReportTimer = null;
         _cameraCapture.ReleaseCamera();
 
         // 5. 清理截图活跃计时器并重置活跃计数
@@ -715,7 +720,21 @@ public sealed class RemoteMonitorService : IDisposable
     private void OnTunnelReady(string url)
     {
         _logger.LogInformation("隧道就绪，上报到服务端：{Url}", url);
+        _lastTunnelUrl = url;
         _ = Task.Run(() => ReportTunnelInfoAsync(url));
+
+        // 运行期定期重报：cloudflared quick tunnel 会在连接断开后自行重建并换地址，
+        // 教师端手上那个旧地址会失效。定期重报让教师端能尽快拿到当前有效地址，
+        // 也顺带自愈偶发的上报失败。
+        _tunnelReportTimer?.Dispose();
+        _tunnelReportTimer = new Timer(_ =>
+        {
+            var current = _lastTunnelUrl;
+            if (!string.IsNullOrEmpty(current))
+            {
+                _ = Task.Run(() => ReportTunnelInfoAsync(current));
+            }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     private void OnTunnelLost()
@@ -827,15 +846,28 @@ public sealed class RemoteMonitorService : IDisposable
             };
             var json = JsonSerializer.Serialize(body);
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var postResp = await httpClient.PostAsync(tunnelApiUrl, content);
-            if (!postResp.IsSuccessStatusCode)
+            // 重试：上报只做一次的话，一次瞬态失败（网关抖动/限流）就会让教师端
+            // 永远拿不到隧道地址，表现为「监控一直没画面」且无任何报错
+            for (int attempt = 1; attempt <= 3; attempt++)
             {
-                _logger.LogWarning("上报 tunnel 信息返回 {Status}", (int)postResp.StatusCode);
+                try
+                {
+                    var postResp = await httpClient.PostAsync(tunnelApiUrl, content);
+                    if (postResp.IsSuccessStatusCode)
+                    {
+                        _logger.LogInformation("已上报 tunnel 信息到服务端（第 {Attempt} 次尝试）", attempt);
+                        return;
+                    }
+                    _logger.LogWarning("上报 tunnel 信息返回 {Status}（第 {Attempt} 次尝试）",
+                        (int)postResp.StatusCode, attempt);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "上报 tunnel 信息失败（第 {Attempt} 次尝试）", attempt);
+                }
+                if (attempt < 3) await Task.Delay(2000 * attempt);
             }
-            else
-            {
-                _logger.LogInformation("已上报 tunnel 信息到服务端");
-            }
+            _logger.LogError("上报 tunnel 信息连续 3 次失败，教师端可能无法通过 Tunnel 接入，请检查网络或稍后重启客户端");
         }
     }
 
