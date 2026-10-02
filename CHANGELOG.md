@@ -4,6 +4,19 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.0] - 2026-10-02
+
+### 新增
+- 班主任端发送通知功能：设备管理页新增「发送通知」卡片，支持
+  - 🔔 提示音（播放内置/自定义提醒音）
+  - 🗣 文本朗读（EdgeTTS 语音合成朗读正文）
+  - 🔊 最高音量播放：开启后提示音/朗读以系统最大音量播放（播放前临时把主音量调到 100%），全部播放完成后自动恢复电脑原来的音量
+- 客户端在集控轮询循环（每 5 秒）中拉取待处理通知，屏幕滚动显示并按上述选项播放
+- 实现：新增 TeacherNotificationProvider（通知显示+自主音频播放）、TeacherNotificationPullService（轮询拉取）、MasterVolumeController（NAudio 系统主音量临时提升/恢复）、EdgeTtsService.SynthesizeToFileAsync（可等待的语音合成）
+- 服务端新增 teacher_notifications 表与发送/拉取接口（原子取走，避免提示音反复轰炸）
+
+> 本版本起版本号采用 X.Y.Z 语义化规范：功能新增升 Y，Bug 修复升 Z。
+
 ## [2.1.2.34] - 2026-10-02
 
 ### 修复

@@ -454,6 +454,24 @@ public class ManagementService : ObservableRecipient, IManagementService
                         {
                             Logger.LogWarning(ex, "定时上报设备状态失败");
                         }
+
+                        // 拉取班主任端下发的通知（提示音/朗读/最高音量播放）
+                        try
+                        {
+                            var notificationPull = IAppHost.TryGetService<TeacherNotificationPullService>();
+                            if (notificationPull != null)
+                            {
+                                await notificationPull.PullAsync();
+                            }
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogWarning(ex, "拉取班主任通知失败");
+                        }
                     }
                 }
                 catch (OperationCanceledException)

@@ -160,6 +160,27 @@ public class EdgeTtsService : ISpeechService
         }
     }
 
+    /// <summary>
+    /// 把文本合成为音频文件（带缓存），返回文件路径；失败返回 null。
+    /// 供需要"等待播放完成"的场景使用（如班主任通知朗读），区别于 fire-and-forget 的 EnqueueSpeechQueue。
+    /// </summary>
+    public async Task<string?> SynthesizeToFileAsync(string text)
+    {
+        try
+        {
+            var cache = GetCachePath(text);
+            if (File.Exists(cache))
+                return cache;
+            var ok = await GenerateSpeechAsync(text, cache, CancellationToken.None);
+            return ok ? cache : null;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "合成通知朗读语音失败：{}", text);
+            return null;
+        }
+    }
+
     private async Task<bool> GenerateSpeechAsync(string text, string cache, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
