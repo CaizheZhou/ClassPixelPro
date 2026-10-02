@@ -4,6 +4,12 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.2] - 2026-10-02
+
+### 修复
+- 班主任通知 Provider 解析失败导致通知被丢弃：Provider 以 AddHostedService 注册，
+  无法用 GetService<T> 直接解析。改为从 IHostedService 实例列表按类型查找
+
 ## [2.2.1] - 2026-10-02
 
 ### 修复

@@ -4,6 +4,9 @@ using System.Threading.Tasks;
 using ClassPixelPro.Core.Abstractions.Services.Management;
 using ClassPixelPro.Shared;
 using ClassPixelPro.Shared.Models.Management;
+using System.Linq;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace ClassPixelPro.Services.Management;
@@ -42,7 +45,10 @@ public class TeacherNotificationPullService
         if (result?.Notifications is not { Count: > 0 } list)
             return;
 
-        var provider = IAppHost.TryGetService<NotificationProviders.TeacherNotificationProvider>();
+        // Provider 以 AddHostedService 方式注册，不能用 GetService<T> 直接解析，
+        // 从 IHostedService 实例列表中按类型查找（即宿主实际运行的实例）
+        var provider = IAppHost.Host?.Services.GetServices<IHostedService>()
+            .OfType<NotificationProviders.TeacherNotificationProvider>().FirstOrDefault();
         if (provider == null)
         {
             Logger.LogWarning("TeacherNotificationProvider 未注册，丢弃 {} 条班主任通知", list.Count);
