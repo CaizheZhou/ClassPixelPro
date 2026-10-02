@@ -50,8 +50,13 @@ public class TeacherNotificationProvider : NotificationProviderBase
 
     public async Task HandleAsync(TeacherNotificationPayload payload)
     {
-        Logger.LogInformation("收到班主任通知：{}（提示音={}，朗读={}，最高音量={}）",
-            payload.Text, payload.SoundEnabled, payload.TtsEnabled, payload.MaxVolume);
+        var durationSeconds = payload.DurationSeconds > 0
+            ? Math.Clamp(payload.DurationSeconds, 3, 300)
+            : OverlaySeconds;
+        var ttsRepeat = Math.Clamp(payload.TtsRepeat, 1, 10);
+
+        Logger.LogInformation("收到班主任通知：{}（提示音={}，朗读={}次，最高音量={}，显示={}秒）",
+            payload.Text, payload.SoundEnabled, ttsRepeat, payload.MaxVolume, durationSeconds);
 
         // 1) 屏幕通知（滚动弹幕 + 遮罩）。管线的音效/朗读全部关闭，由下面的播放逻辑接管。
         // 本方法由集控轮询的后台线程调用，而通知内容会创建 Avalonia 控件（IconSource 等），
@@ -62,12 +67,14 @@ public class TeacherNotificationProvider : NotificationProviderBase
             {
                 MaskContent = NotificationContent.CreateTwoIconsMask("班主任通知", rightIcon: ""),
                 OverlayContent = NotificationContent.CreateRollingTextContent(
-                    payload.Text, TimeSpan.FromSeconds(OverlaySeconds), 1),
+                    payload.Text, TimeSpan.FromSeconds(durationSeconds), 1),
                 RequestNotificationSettings =
                 {
                     IsSettingsEnabled = true,
                     IsSpeechEnabled = false,
-                    IsNotificationSoundEnabled = false
+                    IsNotificationSoundEnabled = false,
+                    // 置顶：设置页/其他窗口在前时也要能看到班主任通知
+                    IsNotificationTopmostEnabled = true
                 }
             });
         });
@@ -85,7 +92,11 @@ public class TeacherNotificationProvider : NotificationProviderBase
 
                 if (payload.TtsEnabled)
                 {
-                    await PlaySpeechAsync(payload.Text, payload.MaxVolume);
+                    for (var i = 0; i < ttsRepeat; i++)
+                    {
+                        await PlaySpeechAsync(payload.Text, payload.MaxVolume);
+                        if (i < ttsRepeat - 1) await Task.Delay(400);
+                    }
                 }
 
                 // 播放结束稍作停留再恢复音量，避免音频尾部被截断或爆音

@@ -23,4 +23,10 @@ public class TeacherNotificationPayload
     /// 播放音效/朗读时把系统主音量临时调到 100%，全部播放完成后恢复原音量。
     /// </summary>
     public bool MaxVolume { get; set; }
+
+    /// <summary>屏幕通知滚动显示时长（秒），服务端默认 12。</summary>
+    public int DurationSeconds { get; set; } = 12;
+
+    /// <summary>文本朗读重复次数，服务端默认 1。</summary>
+    public int TtsRepeat { get; set; } = 1;
 }
