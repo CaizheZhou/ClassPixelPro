@@ -4,6 +4,16 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.3.2] - 2026-10-02
+
+### 修复
+- 摄像头列表数量与名称错误：此前按索引 0~9 逐个 VideoCapture(i, DSHOW) 探测，
+  而 DSHOW 打开失败时会回落到默认设备——实测只有 1 个摄像头的机器被报成 9 个，
+  名称也只能显示 “Camera 0/1/2…” 占位符。
+  改用 SetupAPI 枚举系统 Camera 设备类：返回真实数量与友好名称（如 “USB2.0 HD UVC WebCam”），
+  纯 Win32 调用，不依赖 COM 注册
+  （DirectShow 设备枚举器在本类目标机上未注册，返回 REGDB_E_CLASSNOTREG，故不采用）
+
 ## [2.2.3.1] - 2026-10-02
 
 ### 修复

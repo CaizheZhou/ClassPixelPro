@@ -90,32 +90,40 @@ public sealed class CameraCaptureService : IDisposable
 
         var result = new List<CameraInfo>();
 
-        // 真实设备名：DirectShow 枚举顺序与 DSHOW 后端的索引顺序一致，
-        // 因此第 i 个名字对应 VideoCapture(i, DSHOW)，不会出现名字与设备对不上的情况。
-        var deviceNames = DirectShowCameraEnumerator.GetCameraNames();
-
-        for (int i = 0; i < 10; i++)
+        // 摄像头列表以系统设备枚举为准（SetupAPI，纯 Win32，任何 Windows 都可用）。
+        // 此前按索引 0~9 逐个 VideoCapture(i, DSHOW) 探测：DSHOW 打开失败时会回落到默认设备，
+        // 导致只有 1 个摄像头也被报成 9 个；名称也只能拼 "Camera N" 占位符。
+        var deviceNames = WindowsCameraEnumerator.GetCameraNames();
+        if (deviceNames.Count > 0)
         {
-            try
+            for (var i = 0; i < deviceNames.Count; i++)
             {
-                using var probe = new VideoCapture(i, VideoCaptureAPIs.DSHOW);
-                if (probe.IsOpened())
+                result.Add(new CameraInfo
                 {
-                    // 名字取真实设备名；DirectShow 不可用或数量对不上时回退到索引占位名
-                    var name = i < deviceNames.Count && !string.IsNullOrWhiteSpace(deviceNames[i])
-                        ? deviceNames[i]
-                        : $"摄像头 {i}";
-                    result.Add(new CameraInfo
-                    {
-                        Index = i,
-                        Name = name,
-                        IsDefault = i == 0,
-                    });
-                }
+                    Index = i,
+                    Name = deviceNames[i],
+                    IsDefault = i == 0,
+                });
             }
-            catch
+        }
+        else
+        {
+            // 系统枚举不可用（非 Windows / 权限受限）→ 回退到逐个探测，至少保证能用
+            _logger.LogWarning("系统摄像头枚举不可用，回退为按索引探测");
+            for (int i = 0; i < 10; i++)
             {
-                // 忽略探测失败
+                try
+                {
+                    using var probe = new VideoCapture(i, VideoCaptureAPIs.DSHOW);
+                    if (probe.IsOpened())
+                    {
+                        result.Add(new CameraInfo { Index = i, Name = $"摄像头 {i}", IsDefault = i == 0 });
+                    }
+                }
+                catch
+                {
+                    // 忽略探测失败
+                }
             }
         }
 
