@@ -62,6 +62,125 @@ public static class FirewallHelper
     }
 
     /// <summary>
+    /// 版本更新后首次启动时自动确保放行规则存在。
+    /// <para>
+    /// 规则按「程序」放行而不是按端口：监控服务每次启动都随机换端口，写死端口的规则
+    /// 下一次启动就失效。检测到当前 exe 路径没有放行规则时自动重建——已提权则静默执行，
+    /// 未提原则弹一次 UAC；每个版本只提示一次，避免反复打扰。
+    /// </para>
+    /// </summary>
+    public static bool EnsureInboundRuleOnUpdate(Action<string>? log = null)
+    {
+        if (!OperatingSystem.IsWindows()) return true;
+
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath)) return false;
+
+        // 已有覆盖当前 exe 的规则 → 无需任何操作（绝大多数启动都走这里，不打扰用户）
+        if (HasRuleForPath(exePath)) return true;
+
+        // 本版本已询问过（用户拒绝或已自行处理）→ 不再重复弹 UAC
+        if (WasPromptedForCurrentVersion())
+        {
+            log?.Invoke("本次更新尚未放行防火墙（此前已询问过），局域网直连可能被拦截；" +
+                        "可在「设置 → 远程监控 → 放行防火墙」中手动处理。");
+            return false;
+        }
+        MarkPromptedForCurrentVersion();
+
+        if (IsElevated())
+        {
+            // 已以管理员身份运行（如机房常用的管理员启动方式）→ 静默完成，无需打扰
+            var (exitCode, _) = ApplyRule(exePath);
+            if (exitCode == 0)
+            {
+                log?.Invoke("检测到版本更新，已自动重建防火墙入站放行规则。");
+                return true;
+            }
+        }
+
+        // 未提权：自动弹一次 UAC 完成放行
+        var ok = EnsureInboundRuleElevated(0, out var message);
+        log?.Invoke(ok ? $"检测到版本更新，已自动放行防火墙。{message}" : $"自动放行防火墙未完成：{message}");
+        return ok;
+    }
+
+    /// <summary>当前 exe 路径是否已有入站放行规则（读取 netsh 规则无需管理员）。</summary>
+    private static bool HasRuleForPath(string exePath)
+    {
+        var (_, output) = Run("netsh", "advfirewall firewall show rule name=\"" + RuleName + "\"");
+        return output.Contains(exePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsElevated()
+    {
+        try
+        {
+            using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+            return new System.Security.Principal.WindowsPrincipal(identity)
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>以程序（不限端口）为范围重建入站放行规则，返回 (退出码, 输出)。</summary>
+    private static (int ExitCode, string Output) ApplyRule(string exePath)
+    {
+        Run("netsh", "advfirewall firewall delete rule name=\"" + RuleName + "\"");
+        return Run("netsh", "advfirewall firewall add rule name=\"" + RuleName + "\" " +
+                            "dir=in action=allow program=\"" + exePath + "\" enable=yes profile=any");
+    }
+
+    // 标记文件：记录「本次版本已询问过防火墙放行」，避免每次启动都弹 UAC
+    private static string PromptMarkerPath => Path.Combine(
+        Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory,
+        "..", "..", "data", "Cache", "firewall-prompted.txt");
+
+    private static bool WasPromptedForCurrentVersion()
+    {
+        try
+        {
+            var marker = PromptMarkerPath;
+            return File.Exists(marker) &&
+                   File.ReadAllText(marker).Trim() == CurrentVersionTag();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void MarkPromptedForCurrentVersion()
+    {
+        try
+        {
+            var marker = PromptMarkerPath;
+            var dir = Path.GetDirectoryName(marker);
+            if (dir != null) Directory.CreateDirectory(dir);
+            File.WriteAllText(marker, CurrentVersionTag());
+        }
+        catch
+        {
+            // 标记失败只会导致下次多问一次，不影响功能
+        }
+    }
+
+    private static string CurrentVersionTag()
+    {
+        try
+        {
+            return typeof(FirewallHelper).Assembly.GetName().Version?.ToString() ?? "unknown";
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+
+    /// <summary>
     /// 以管理员权限重建入站规则（触发一次 UAC 提示）。
     /// 供设置页「放行防火墙」按钮在用户明确点击时调用。
     /// </summary>
@@ -80,9 +199,11 @@ public static class FirewallHelper
             return false;
         }
 
-        var args = "netsh advfirewall firewall delete rule name=\"" + RuleName + "\" & " +
-                   "netsh advfirewall firewall add rule name=\"" + RuleName + "\" dir=in action=allow " +
-                   $"protocol=TCP localport={port} profile=any program=\"{exePath}\" enable=yes";
+        // port <= 0 时按程序放行（不限端口）：监控端口每次启动随机变化，按端口的规则下次就失效
+        var portPart = port > 0 ? $"protocol=TCP localport={port} " : "";
+        var args = "netsh advfirewall firewall delete rule name=\"" + RuleName + "\" & "
+                   + "netsh advfirewall firewall add rule name=\"" + RuleName + "\" dir=in action=allow "
+                   + $"{portPart}profile=any program=\"{exePath}\" enable=yes";
         try
         {
             var psi = new ProcessStartInfo("cmd.exe", "/c " + args)

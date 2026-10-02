@@ -141,9 +141,10 @@ public sealed class RemoteMonitorService : IDisposable
         StartHttpServer();
         _logger.LogInformation("HTTP 服务器已启动，端口 {Port}，token={Token}", LocalPort, Token);
 
-        // 每次启动都用当前 exe 路径重建防火墙入站规则：自动更新会换 app-<版本> 目录，
-        // Windows 按旧路径记录的放行规则随即失效，局域网直连（教师手机）会被拦截。
-        FirewallHelper.EnsureInboundRule(LocalPort, msg => _logger.LogInformation("{Msg}", msg));
+        // 版本更新后首次启动自动放行防火墙（规则按程序而非端口，端口每次启动随机变化）：
+        // 自动更新会换 app-<版本> 目录，Windows 按旧 exe 路径记录的规则随即失效，
+        // 局域网直连（教师手机）被拦截。已存在规则时静默跳过，不会打扰用户。
+        FirewallHelper.EnsureInboundRuleOnUpdate(msg => _logger.LogInformation("{Msg}", msg));
 
         _running = true;
         _logger.LogInformation("远程监控服务已启动");
