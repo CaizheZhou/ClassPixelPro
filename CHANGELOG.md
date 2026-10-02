@@ -4,6 +4,13 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.2.7] - 2026-10-02
+
+### 新增
+- 设置 → 远程监控 新增「放行防火墙」按钮：应用更新后 Windows 入站放行规则会随
+  exe 路径变化而失效，导致教师手机等局域网设备无法直连。该按钮由用户点击触发一次
+  UAC，重建入站规则（自动化脚本静默提权会被系统拒绝，故设计为显式操作）
+
 ## [2.2.2.6] - 2026-10-02
 
 ### 修复

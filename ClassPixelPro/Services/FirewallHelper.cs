@@ -61,6 +61,55 @@ public static class FirewallHelper
         }
     }
 
+    /// <summary>
+    /// 以管理员权限重建入站规则（触发一次 UAC 提示）。
+    /// 供设置页「放行防火墙」按钮在用户明确点击时调用。
+    /// </summary>
+    public static bool EnsureInboundRuleElevated(int port, out string message)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            message = "仅 Windows 需要该操作";
+            return false;
+        }
+
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
+        {
+            message = "无法确定当前程序路径";
+            return false;
+        }
+
+        var args = "netsh advfirewall firewall delete rule name=\"" + RuleName + "\" & " +
+                   "netsh advfirewall firewall add rule name=\"" + RuleName + "\" dir=in action=allow " +
+                   $"protocol=TCP localport={port} profile=any program=\"{exePath}\" enable=yes";
+        try
+        {
+            var psi = new ProcessStartInfo("cmd.exe", "/c " + args)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                message = "无法启动提权进程";
+                return false;
+            }
+            proc.WaitForExit(30000);
+            message = proc.ExitCode == 0
+                ? "防火墙放行规则已更新，局域网直连应可用"
+                : "操作未完成（可能取消了 UAC 提示）";
+            return proc.ExitCode == 0;
+        }
+        catch (Exception ex)
+        {
+            message = "提权失败：" + ex.Message;
+            return false;
+        }
+    }
+
     /// <summary>执行外部命令，返回 (退出码, 合并输出)。</summary>
     private static (int ExitCode, string Output) Run(string fileName, string arguments)
     {

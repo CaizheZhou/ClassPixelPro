@@ -102,6 +102,28 @@ public partial class RemoteMonitorSettingsPage : SettingsPageBase
         }
     }
 
+    private void ButtonAllowFirewall_OnClick(object? sender, RoutedEventArgs e)
+    {
+        var port = ViewModel.RemoteMonitorService?.LocalPort ?? 0;
+        if (port <= 0)
+        {
+            this.ShowErrorToast("远程监控服务未运行，无法放行");
+            return;
+        }
+
+        this.ShowToast("正在请求管理员权限…");
+        // netsh 需要管理员权限，这里由用户显式点击触发 UAC，不做静默提权
+        var ok = FirewallHelper.EnsureInboundRuleElevated(port, out var message);
+        if (ok)
+        {
+            this.ShowToast(message);
+        }
+        else
+        {
+            this.ShowErrorToast(message);
+        }
+    }
+
     private async System.Threading.Tasks.Task SetClipboardTextAsync(string text)
     {
         try

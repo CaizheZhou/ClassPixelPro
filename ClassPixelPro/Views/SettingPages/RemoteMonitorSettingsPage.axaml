@@ -181,6 +181,22 @@
                 </controls3:SettingsExpanderItem>
             </controls3:SettingsExpander>
 
+            <!-- 防火墙放行（局域网直连） -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE72C;}"
+                                        Header="防火墙放行"
+                                        Description="允许同一局域网内的设备（如教师手机）直连本机远程监控。应用更新后 Windows 放行规则会失效，需要重新放行一次。"
+                                        IsVisible="{Binding ViewModel.SettingsService.Settings.IsRemoteMonitorEnabled}">
+                <controls3:SettingsExpanderItem Content="一键放行（需管理员权限）"
+                                                IsClickEnabled="False">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <Button Theme="{StaticResource TransparentButton}"
+                                Content="放行防火墙"
+                                Click="ButtonAllowFirewall_OnClick"
+                                VerticalAlignment="Center" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+            </controls3:SettingsExpander>
+
             <!-- 摄像头选择 -->
             <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE8B6;}"
                                         Header="摄像头"
