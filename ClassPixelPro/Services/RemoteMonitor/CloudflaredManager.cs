@@ -303,6 +303,40 @@ public sealed class CloudflaredManager : IDisposable
                 return Task.CompletedTask;
             }
 
+            // 清扫孤儿 cloudflared 进程。优雅退出（Stop）会终止子进程，但强杀进程、崩溃、
+            // 更新自重启等路径不会经过 Stop，旧的 cloudflared 就会残留为孤儿：
+            // 既持续占用隧道与网络，又持有旧版本 app-* 目录的句柄，导致更新清理
+            // （CleanupPrevDeployments）删除旧目录时一直"目录被占用"而失败。
+            // 本客户端启动的 quick tunnel 命令行固定含 "tunnel --url http://localhost:"，
+            // 以此特征识别，避免误杀用户自行运行的命名隧道 cloudflared。
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("cloudflared"))
+                {
+                    try
+                    {
+                        var cmdline = QueryCommandLine(p);
+                        if (cmdline != null && cmdline.Contains("tunnel --url http://localhost:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogInformation("清扫孤儿 cloudflared 进程（PID={Pid}）", p.Id);
+                            p.Kill(entireProcessTree: true);
+                        }
+                    }
+                    catch (Exception exChild)
+                    {
+                        _logger.LogDebug(exChild, "清扫 cloudflared 进程失败（PID={Pid}，可能已退出）", p.Id);
+                    }
+                    finally
+                    {
+                        p.Dispose();
+                    }
+                }
+            }
+            catch (Exception exSweep)
+            {
+                _logger.LogWarning(exSweep, "清扫孤儿 cloudflared 进程失败");
+            }
+
             _stopping = false;
             _monitorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _monitorTask = Task.Run(() => MonitorLoopAsync(localPort, _monitorCts.Token), _monitorCts.Token);
@@ -429,6 +463,27 @@ public sealed class CloudflaredManager : IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 查询进程的完整命令行。孤儿 cloudflared 识别依赖它（Process 类不暴露命令行）。
+    /// </summary>
+    private static string? QueryCommandLine(System.Diagnostics.Process process)
+    {
+        try
+        {
+            using var searcher = new System.Management.ManagementObjectSearcher(
+                "SELECT CommandLine FROM Win32_Process WHERE ProcessId = " + process.Id);
+            foreach (var o in searcher.Get())
+            {
+                return o["CommandLine"] as string;
+            }
+        }
+        catch
+        {
+            // 权限不足或进程已退出时拿不到命令行，返回 null 由调用方跳过
+        }
+        return null;
     }
 
     private void KillProcess()

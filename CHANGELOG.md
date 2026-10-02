@@ -4,6 +4,15 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.33] - 2026-10-02
+
+### 修复
+- 孤儿 cloudflared 进程残留：优雅退出时会终止 cloudflared 子进程，但强杀、崩溃、
+  更新自重启等路径不经过 Stop，旧的 cloudflared 残留为孤儿——既持续占用隧道资源，
+  又持有旧版本 app-* 目录句柄，导致旧目录清理一直报"目录被占用"而失败。
+  现在启动远程监控前会清扫本客户端启动过的 quick tunnel 孤儿进程
+  （按命令行特征 `tunnel --url http://localhost:` 识别，不误杀用户自己的命名隧道）
+
 ## [2.1.2.32] - 2026-10-02
 
 ### 修复
