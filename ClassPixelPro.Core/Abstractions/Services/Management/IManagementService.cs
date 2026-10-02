@@ -94,6 +94,12 @@ public interface IManagementService
     /// 用于客户端直接调用服务端 REST API（如选配池、配置模式等）。
     /// </summary>
     string? GetManagementBaseUrl();
+
+    /// <summary>
+    /// 应用集控下发的临时调课课表到当前档案的临时层（Overlay）。
+    /// <paramref name="downloaded"/> 为 null 时使用本地缓存文件重放（供档案加载完成后恢复启动期间被覆盖的临时课表）。
+    /// </summary>
+    Task<bool> ApplyTempClassPlanAsync(object? downloaded = null);
 }
 
 /// <summary>

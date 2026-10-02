@@ -276,6 +276,30 @@ public class ProfileService : IProfileService, INotifyPropertyChanged
         CleanExpiredTempClassPlan();
         _isProfileLoaded = true;
 
+        // 修复：重启后临时课表丢失。SetupManagement() 在本方法之前执行，启动时拉到的
+        // 集控临时调课课表被应用到了尚为空的 new Profile() 上（此时 SaveProfile 因
+        // _isProfileLoaded=false 静默跳过），随后本方法加载的真实档案把这次应用整个冲掉——
+        // 内存和磁盘都不留痕迹。结果表现为：班主任设好临时课表后，客户端只要重启一次，
+        // 临时课表就消失，直到班主任再次保存版本号才会恢复。
+        // 这里在档案就绪后重放一次：直接使用本地缓存文件（版本号此时已同步，轮询不会重复拉取）。
+        // 服务端版本为 0 说明班主任已删除/恢复原课表，此时不能重放，否则会复活已删除的临时课表。
+        if (ManagementService.IsManagementEnabled &&
+            ManagementService.Manifest?.TempClassPlanSource is { Version: > 0 })
+        {
+            try
+            {
+                var replayed = await ManagementService.ApplyTempClassPlanAsync();
+                if (replayed)
+                {
+                    Logger.LogInformation("档案加载后已重放集控临时调课课表（修复启动顺序导致的丢失）");
+                }
+            }
+            catch (Exception exReplay)
+            {
+                Logger.LogWarning(exReplay, "档案加载后重放集控临时调课课表失败");
+            }
+        }
+
         Profile.ClassPlans.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.ClassPlanUpdated, args);
         Profile.TimeLayouts.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.TimeLayoutUpdated, args);
         Profile.Subjects.CollectionChanged += (sender, args) => AuditProfileChangeEvent(AuditEvents.SubjectUpdated, args);
