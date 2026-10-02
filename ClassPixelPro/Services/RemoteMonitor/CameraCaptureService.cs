@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -88,6 +89,11 @@ public sealed class CameraCaptureService : IDisposable
         }
 
         var result = new List<CameraInfo>();
+
+        // 真实设备名：DirectShow 枚举顺序与 DSHOW 后端的索引顺序一致，
+        // 因此第 i 个名字对应 VideoCapture(i, DSHOW)，不会出现名字与设备对不上的情况。
+        var deviceNames = DirectShowCameraEnumerator.GetCameraNames();
+
         for (int i = 0; i < 10; i++)
         {
             try
@@ -95,10 +101,14 @@ public sealed class CameraCaptureService : IDisposable
                 using var probe = new VideoCapture(i, VideoCaptureAPIs.DSHOW);
                 if (probe.IsOpened())
                 {
+                    // 名字取真实设备名；DirectShow 不可用或数量对不上时回退到索引占位名
+                    var name = i < deviceNames.Count && !string.IsNullOrWhiteSpace(deviceNames[i])
+                        ? deviceNames[i]
+                        : $"摄像头 {i}";
                     result.Add(new CameraInfo
                     {
                         Index = i,
-                        Name = $"Camera {i}",
+                        Name = name,
                         IsDefault = i == 0,
                     });
                 }
@@ -107,6 +117,12 @@ public sealed class CameraCaptureService : IDisposable
             {
                 // 忽略探测失败
             }
+        }
+
+        if (result.Count > 0)
+        {
+            _logger.LogInformation("检测到 {Count} 个摄像头：{Names}",
+                result.Count, string.Join(" / ", result.Select(c => $"{c.Index}:{c.Name}")));
         }
 
         if (result.Count == 0)
