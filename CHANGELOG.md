@@ -4,6 +4,13 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.2.34] - 2026-10-02
+
+### 修复
+- 孤儿 cloudflared 清扫时机：清扫原本在远程监控服务启动时才执行，晚于更新目录清理——
+  孤儿进程先让目录清理失败、然后才被杀掉，导致每次启动都慢一拍。现在启动流程
+  最前面（删除旧版本目录之前）先清扫孤儿 cloudflared，目录清理一次到位
+
 ## [2.1.2.33] - 2026-10-02
 
 ### 修复

@@ -228,6 +228,10 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
         // 该方法只删除带 .destroy 标记的目录（标记在部署新版本时写入旧版本目录，
         // 不可能是当前正在运行的版本），因此每次启动调用一次是安全的：
         // 本次因文件占用删不掉的目录，下次启动会自动补删。
+        //
+        // 注意顺序：必须先清扫孤儿 cloudflared 进程再清理目录——孤儿进程持有旧版本
+        // app-* 目录的句柄，不先杀掉它们，下面的目录删除必然失败。
+        Services.RemoteMonitor.CloudflaredManager.SweepOrphanProcesses();
         CleanupPrevDeployments();
 
         if (Settings.LastUpdateStatus == UpdateStatus.UpdateDeployed)

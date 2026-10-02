@@ -309,33 +309,7 @@ public sealed class CloudflaredManager : IDisposable
             // （CleanupPrevDeployments）删除旧目录时一直"目录被占用"而失败。
             // 本客户端启动的 quick tunnel 命令行固定含 "tunnel --url http://localhost:"，
             // 以此特征识别，避免误杀用户自行运行的命名隧道 cloudflared。
-            try
-            {
-                foreach (var p in System.Diagnostics.Process.GetProcessesByName("cloudflared"))
-                {
-                    try
-                    {
-                        var cmdline = QueryCommandLine(p);
-                        if (cmdline != null && cmdline.Contains("tunnel --url http://localhost:", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogInformation("清扫孤儿 cloudflared 进程（PID={Pid}）", p.Id);
-                            p.Kill(entireProcessTree: true);
-                        }
-                    }
-                    catch (Exception exChild)
-                    {
-                        _logger.LogDebug(exChild, "清扫 cloudflared 进程失败（PID={Pid}，可能已退出）", p.Id);
-                    }
-                    finally
-                    {
-                        p.Dispose();
-                    }
-                }
-            }
-            catch (Exception exSweep)
-            {
-                _logger.LogWarning(exSweep, "清扫孤儿 cloudflared 进程失败");
-            }
+            SweepOrphanProcesses(_logger);
 
             _stopping = false;
             _monitorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -462,6 +436,51 @@ public sealed class CloudflaredManager : IDisposable
                     TunnelReady?.Invoke(url);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// 清扫孤儿 cloudflared 进程。
+    /// <para>
+    /// 优雅退出（Stop）会终止子进程，但强杀进程、崩溃、更新自重启等路径不会经过 Stop，
+    /// 旧的 cloudflared 就会残留为孤儿：既持续占用隧道与网络，又持有旧版本 app-* 目录的
+    /// 句柄，导致 <see cref="M:ClassPixelPro.Services.AppUpdating.UpdateService.CleanupPrevDeployments"/>
+    /// 删除旧目录时一直"目录被占用"而失败。
+    /// </para>
+    /// <para>
+    /// 本客户端启动的 quick tunnel 命令行固定含 "tunnel --url http://localhost:"，
+    /// 以此特征识别，避免误杀用户自行运行的命名隧道 cloudflared。
+    /// 更新清理（AppStartupBackground）必须在删除旧目录之前调用本方法，否则清理会失败。
+    /// </para>
+    /// </summary>
+    public static void SweepOrphanProcesses(ILogger? logger = null)
+    {
+        try
+        {
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("cloudflared"))
+            {
+                try
+                {
+                    var cmdline = QueryCommandLine(p);
+                    if (cmdline != null && cmdline.Contains("tunnel --url http://localhost:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        logger?.LogInformation("清扫孤儿 cloudflared 进程（PID={Pid}）", p.Id);
+                        p.Kill(entireProcessTree: true);
+                    }
+                }
+                catch (Exception exChild)
+                {
+                    logger?.LogDebug(exChild, "清扫 cloudflared 进程失败（PID={Pid}，可能已退出）", p.Id);
+                }
+                finally
+                {
+                    p.Dispose();
+                }
+            }
+        }
+        catch (Exception exSweep)
+        {
+            logger?.LogWarning(exSweep, "清扫孤儿 cloudflared 进程失败");
         }
     }
 
