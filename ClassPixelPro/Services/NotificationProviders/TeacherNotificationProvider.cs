@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using ClassPixelPro.Core.Abstractions.Services;
 using ClassPixelPro.Core.Abstractions.Services.NotificationProviders;
 using ClassPixelPro.Core.Abstractions.Services.SpeechService;
@@ -53,17 +54,22 @@ public class TeacherNotificationProvider : NotificationProviderBase
             payload.Text, payload.SoundEnabled, payload.TtsEnabled, payload.MaxVolume);
 
         // 1) 屏幕通知（滚动弹幕 + 遮罩）。管线的音效/朗读全部关闭，由下面的播放逻辑接管。
-        ShowNotification(new NotificationRequest
+        // 本方法由集控轮询的后台线程调用，而通知内容会创建 Avalonia 控件（IconSource 等），
+        // 必须切回 UI 线程，否则抛 "Call from invalid thread"。
+        await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            MaskContent = NotificationContent.CreateTwoIconsMask("班主任通知", rightIcon: "\uE7E7"),
-            OverlayContent = NotificationContent.CreateRollingTextContent(
-                payload.Text, TimeSpan.FromSeconds(OverlaySeconds), 1),
-            RequestNotificationSettings =
+            ShowNotification(new NotificationRequest
             {
-                IsSettingsEnabled = true,
-                IsSpeechEnabled = false,
-                IsNotificationSoundEnabled = false
-            }
+                MaskContent = NotificationContent.CreateTwoIconsMask("班主任通知", rightIcon: ""),
+                OverlayContent = NotificationContent.CreateRollingTextContent(
+                    payload.Text, TimeSpan.FromSeconds(OverlaySeconds), 1),
+                RequestNotificationSettings =
+                {
+                    IsSettingsEnabled = true,
+                    IsSpeechEnabled = false,
+                    IsNotificationSoundEnabled = false
+                }
+            });
         });
 
         // 2) 音效与朗读。开启最高音量时：播放前主音量 → 100%，全部播放完成后恢复。

@@ -4,6 +4,15 @@
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.2.2.3] - 2026-10-02
+
+### 修复
+- 班主任通知在 UI 线程外创建 Avalonia 通知内容导致 "Call from invalid thread" 异常、
+  通知与音效全部失败：通知显示部分改为 Dispatcher.UIThread.InvokeAsync
+
+> 本版本起严格采用「主版本号.X.Y.Z」四段式规范（主版本 2，X 重大更新 / Y 功能新增 /
+> Z Bug 修复）：此前 2.2.x 为旧命名产物，本版按 Z 位递增过渡。
+
 ## [2.2.2] - 2026-10-02
 
 ### 修复
