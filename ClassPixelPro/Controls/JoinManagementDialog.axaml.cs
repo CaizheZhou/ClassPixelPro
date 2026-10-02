@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -50,16 +52,41 @@ public partial class JoinManagementDialog : MyWindow
         LoadManagementSettings();
     }
 
+    // 集控配置允许把枚举写成名称（如 "ManagementServerKind": "Serverless"）。
+    // 全局序列化选项刻意不注册 JsonStringEnumConverter——那会把所有配置文件的
+    // 枚举落盘格式从数字改成字符串，影响面太大。这里只在导入这一条路径上放宽。
+    private static readonly JsonSerializerOptions ImportOptions = BuildImportOptions();
+
+    private static JsonSerializerOptions BuildImportOptions()
+    {
+        var o = new JsonSerializerOptions(ConfigureFileHelper.SerializerOptions);
+        o.Converters.Add(new JsonStringEnumConverter());
+        o.AllowTrailingCommas = true;
+        o.ReadCommentHandling = JsonCommentHandling.Skip;
+        return o;
+    }
+
     private void LoadManagementSettings()
     {
+        var path = ViewModel.ConfigFilePath;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            ViewModel.ErrorMessage = "请选择一个配置文件";
+            ViewModel.IsErrorMessageOpen = true;
+            return;
+        }
         try
         {
-            ViewModel.ManagementSettings = ConfigureFileHelper.LoadConfig<ManagementSettings>(ViewModel.ConfigFilePath);
+            ViewModel.ManagementSettings =
+                JsonSerializer.Deserialize<ManagementSettings>(File.ReadAllText(path), ImportOptions)
+                ?? new ManagementSettings();
             ViewModel.IsConfigLoaded = true;
         }
         catch (Exception exception)
         {
-            ViewModel.ErrorMessage = exception.Message;
+            // 这里不用 ConfigureFileHelper.LoadConfig：它解析失败时会吞掉异常并返回
+            // 一份空配置，界面看着一切正常，用户要到点「连接」才会碰到莫名其妙的报错。
+            ViewModel.ErrorMessage = "无法读取配置文件：" + exception.Message;
             ViewModel.IsErrorMessageOpen = true;
         }
     }
