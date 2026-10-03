@@ -543,10 +543,10 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 deploymentLock.ExistedFiles[id] = existedFiles;
 
                 string? prevCompRoot = null;
+                var prevExpandedRoot = VariableStringHelpers.ExpandString(component.Root, vars);
                 if (prevFileMapUserVarsLoadSuccess)
                 {
-                    prevCompRoot = Path.GetFullPath(Path.Combine(root,
-                        VariableStringHelpers.ExpandString(component.Root, vars)));
+                    prevCompRoot = Path.GetFullPath(Path.Combine(root, prevExpandedRoot));
                     if (!PathHelpers.IsSafePath(root, prevCompRoot))
                     {
                         throw new InvalidOperationException("文件图组件根目录无效");
@@ -556,12 +556,13 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
 
                 foreach (var (path, fileInfo) in component.Files)
                 {
+                    var prevPath = Path.Combine(DeployBase(path, prevCompRoot ?? root, prevExpandedRoot), path);
                     if (prevFileMapUserVarsLoadSuccess && prevCompRoot != null &&
-                        Path.Exists(Path.Combine(prevCompRoot, path)) &&
+                        Path.Exists(prevPath) &&
                         component.AllowDiffUpdate &&
                         prevComp?.Files.GetValueOrDefault(path)?.FileSha512.SequenceEqual(fileInfo.FileSha512) == true)
                     {
-                        await using var file = File.OpenRead(Path.Combine(prevCompRoot, path));
+                        await using var file = File.OpenRead(prevPath);
                         var hash = await SHA512.HashDataAsync(file, cancellationToken);
                         if (hash.SequenceEqual(fileInfo.FileSha512))
                         {
@@ -934,12 +935,12 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
             
             foreach (var (id, component) in fileMap.Components)
             {
-                var compRoot = Path.Combine(root,
-                    VariableStringHelpers.ExpandString(component.Root, fileMap.Variables));
+                var expandedRoot = VariableStringHelpers.ExpandString(component.Root, fileMap.Variables);
+                var compRoot = Path.Combine(root, expandedRoot);
 
-                if (!PathHelpers.IsSafePath(root, compRoot) || 
-                    component.Files.Any(x => 
-                        !PathHelpers.IsSafePath(compRoot, x.Key)))
+                if (!PathHelpers.IsSafePath(root, compRoot) ||
+                    component.Files.Any(x =>
+                        !PathHelpers.IsSafePath(root, DeployTarget(x.Key, root, expandedRoot))))
                 {
                     throw new InvalidOperationException("文件图发现非法文件路径");
                 }
@@ -949,11 +950,11 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
 
                 foreach (var (path, fileInfo) in component.Files)
                 {
-                    var targetPath = Path.Combine(compRoot, path);
+                    var targetPath = Path.Combine(DeployBase(path, root, expandedRoot), path);
 
                     if (component.AllowDiffUpdate && existedFiles.Contains(path) && existedFilesRoot != null)
                     {
-                        var existedPath = Path.Combine(existedFilesRoot, path);
+                        var existedPath = Path.Combine(DeployBase(path, existedFilesRoot, expandedRoot), path);
                         if (Path.Exists(existedPath))
                         {
                             await using var file = File.OpenRead(existedPath);
@@ -994,8 +995,8 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
             {
                 var existedFiles = deploymentLock.ExistedFiles.GetValueOrDefault(id, []);
                 var existedFilesRoot = deploymentLock.ComponentRoots.GetValueOrDefault(id);
-                var compRoot = Path.Combine(root,
-                    VariableStringHelpers.ExpandString(component.Root, fileMap.Variables));
+                var deployExpandedRoot = VariableStringHelpers.ExpandString(component.Root, fileMap.Variables);
+                var compRoot = Path.Combine(root, deployExpandedRoot);
 
                 await Parallel.ForEachAsync(component.Files, new ParallelOptions()
                 {
@@ -1003,7 +1004,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 }, async (pair, token) =>
                 {
                     var (path, fileInfo) = pair;
-                    var targetPath = Path.Combine(compRoot, path);
+                    var targetPath = Path.Combine(DeployBase(path, root, deployExpandedRoot), path);
                     var dir = Path.GetDirectoryName(targetPath);
                     if (dir != null && !Directory.Exists(dir))
                     {
@@ -1012,7 +1013,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
 
                     if (component.AllowDiffUpdate && existedFiles.Contains(path) && existedFilesRoot != null)
                     {
-                        var existedPath = Path.Combine(existedFilesRoot, path);
+                        var existedPath = Path.Combine(DeployBase(path, existedFilesRoot, deployExpandedRoot), path);
 
                         Logger.LogTrace("Deploy Copy EXISTED {} -> {}", existedPath, targetPath);
                         File.Copy(existedPath, targetPath, true);
@@ -1143,6 +1144,46 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
         field = value;
         OnPropertyChanged(propertyName);
         return true;
+    }
+
+    /// <summary>
+    /// 判断文件映射里的 path 是否已经带了组件 root 前缀。
+    ///
+    /// 文件映射的路径是**相对包根目录**的，而不是相对组件 root：组件 root 本身就是
+    /// <c>app-$(version)-$(number)/</c>，展开后为 <c>app-2.2.3.4-0/</c>，而映射里的 key
+    /// 形如 <c>app-2.2.3.4-0/Foo.dll</c>——前缀已经在里面了。同理 <c>ClassPixelPro.exe</c>
+    /// 和 <c>PackageType</c> 没有前缀，因为它们位于包根目录。
+    ///
+    /// 早期版本无条件用 <c>Path.Combine(compRoot, path)</c>，于是拼出
+    /// <c>app-2.2.3.4-0/app-2.2.3.4-0/Foo.dll</c> 这种双层目录。启动器要求版本目录下
+    /// 直接存在 <c>ClassPixelPro.Desktop.exe</c>，找不到就判定「安装已损坏」并拒绝启动——
+    /// 表现为从 2.2.3.3 升到 2.2.3.4 后无法启动，而全新安装却正常（整包解压的目录结构是平的）。
+    /// </summary>
+    private static bool PathHasRootPrefix(string path, string expandedRoot)
+    {
+        var p = path.Replace('\\', '/').TrimStart('/');
+        var prefix = expandedRoot.Replace('\\', '/').TrimEnd('/') + "/";
+        return p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 计算某个文件映射路径应当落在哪个基准目录下。
+    /// 已带 root 前缀的（应用本体文件）以包根为基准，没有前缀的（启动器、PackageType）
+    /// 以组件根为基准。两种文件映射写法都能正确落盘。
+    /// </summary>
+    private static string DeployBase(string path, string baseDir, string expandedRoot)
+    {
+        return PathHasRootPrefix(path, expandedRoot)
+            ? baseDir
+            : Path.Combine(baseDir, expandedRoot);
+    }
+
+    /// <summary>
+    /// 计算文件映射路径的最终落盘位置。
+    /// </summary>
+    private static string DeployTarget(string path, string baseDir, string expandedRoot)
+    {
+        return Path.Combine(DeployBase(path, baseDir, expandedRoot), path);
     }
 
     private static void CopyDirectoryRecursive(string sourceDir, string destDir)
