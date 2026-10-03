@@ -1153,6 +1153,16 @@ public partial class App : AppBase, IAppHost
                 connection.LogAuditEvent(AuditEvents.AppExited, new Empty());
             }
             AppStopping?.Invoke(this, EventArgs.Empty);
+            // 上报会话结束（带运行时长与退出原因），并把本地队列尽量发完。
+            // 缺了这一步会话时长完全没有数据，崩溃事件也几乎必然随进程一起丢掉。
+            try
+            {
+                IAppHost.TryGetService<Services.UsageStatisticsService>()?.ReportExit();
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogWarning(ex, "使用情况分析：退出上报失败");
+            }
             // 停止远程监控服务（内嵌 HTTP 服务器 + cloudflared 子进程），
             // 否则退出后 cloudflared 进程残留、服务端 tunnel 信息不清理。
             try
