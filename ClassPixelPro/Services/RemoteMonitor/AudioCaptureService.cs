@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using NAudio.CoreAudioApi;
+using NAudio.Wave;
 using Microsoft.Extensions.Logging;
 
 namespace ClassPixelPro.Services.RemoteMonitor;
@@ -38,10 +39,15 @@ public sealed class MicDeviceInfo
 /// </para>
 ///
 /// <para>
-/// WASAPI 共享模式拿到的是设备混音格式（通常 48kHz 立体声 IEEE float），
-/// 这里自行转成 16kHz / 16-bit / 单声道 PCM，浏览器 AudioContext 可直接播放。
-/// 没有用 NAudio 的 SampleToWaveProvider 之类的封装——NAudio 2.2.x 拆包后
-/// 这些便捷类并不在导出类型里，自行转换反而更可控。
+/// 直接向 WASAPI 请求 16kHz / 16-bit / 单声道：NAudio 在请求格式与设备混音格式
+/// 不同时会带上 AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM 标志，由 Windows 音频引擎
+/// 完成重采样与格式转换。这样 <see cref="WaveInEventArgs.Buffer"/> 拿到的就已经是
+/// 目标格式的 PCM，不需要自己再做「字节 → 浮点 → 单声道 → 重采样」的转换。
+///
+/// 之前自己写过一版转换，结果把 <see cref="WaveInEventArgs.Buffer"/> 当成了
+/// float[] 来读——它其实是 byte[]，读出来的是原始字节而非音频样本，
+/// 表现为班主任端听到一片杂音。教训：拿到的是字节流，格式由
+/// <see cref="WasapiCapture.WaveFormat"/> 决定，别凭想当然解释。
 /// </para>
 ///
 /// <para>
@@ -62,7 +68,7 @@ public sealed class AudioCaptureService : IDisposable
     /// <summary>每帧时长（毫秒）。越小延迟越低，但包越多。</summary>
     public const int FrameMilliseconds = 100;
 
-    /// <summary>每帧字节数：16000Hz × 16bit × 1ch × 0.1s。</summary>
+    /// <summary>每帧字节数：16000Hz × 16bit × 1ch × 0.1s = 3200。</summary>
     public static readonly int FrameBytes = SampleRate * BitsPerSample / 8 * FrameMilliseconds / 1000;
 
     private readonly ILogger<AudioCaptureService> _logger;
@@ -73,17 +79,14 @@ public sealed class AudioCaptureService : IDisposable
     private int _currentIndex;
     private bool _disposed;
 
-    // 重采样状态：设备原生采样率 → 16kHz
-    private double _pos;
-    private float _lastSample;
+    // 输出缓冲区跨回调累积：DataAvailable 的批次大小与 100ms 一帧对不齐，
+    // 每次回调用临时数组的话凑不满一帧的部分会被整段丢掉。
+    private readonly List<byte> _outBuf = new(FrameBytes * 4);
 
-    // 某些驱动（尤其是虚拟化环境 / 声卡回环）虽然声称给的是 IEEE float，
-    // 实际送来的却是 0~255 的原始字节。不做归一化的话，这些值乘 32767 会被
-    // 截断成满刻度——听感是巨大噪音，电平恒为 0 dBFS。这里按首包的实际取值
-    // 范围反推编码并归一化。
-    private double _scale = 1.0;
-    private bool _scaleDetected;
-    private bool _formatAnomaly;
+    private bool _formatChecked;
+
+    private List<MicDeviceInfo>? _deviceCache;
+    private DateTime _deviceCacheAt = DateTime.MinValue;
 
     public AudioCaptureService(ILogger<AudioCaptureService> logger)
     {
@@ -95,9 +98,6 @@ public sealed class AudioCaptureService : IDisposable
 
     /// <summary>PCM 格式描述，供前端对齐播放参数。</summary>
     public string FormatDescriptor => $"{SampleRate}/{BitsPerSample}/{Channels}";
-
-    private List<MicDeviceInfo>? _deviceCache;
-    private DateTime _deviceCacheAt = DateTime.MinValue;
 
     /// <summary>
     /// 枚举可用麦克风（缓存 60 秒，避免每次 /status 都重新枚举设备）。
@@ -184,17 +184,16 @@ public sealed class AudioCaptureService : IDisposable
                 throw new InvalidOperationException("没有检测到可用的麦克风设备", e);
             }
 
-            var capture = new WasapiCapture(device);
+            // 直接要 16kHz/16-bit/单声道。NAudio 发现与设备混音格式不同时会自动加
+            // AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM，由 Windows 音频引擎做转换，
+            // 拿到的 Buffer 就是目标格式，不需要自己解释字节。
+            var capture = new WasapiCapture(device)
+            {
+                WaveFormat = new WaveFormat(SampleRate, BitsPerSample, Channels)
+            };
             _device = device;
             _capture = capture;
-
-            _pos = 0;
-            _lastSample = 0;
-
-            // 输出缓冲区跨回调累积：DataAvailable 的批次大小和 100ms 一帧对不齐，
-            // 每次回调都用临时数组的话，凑不满一帧的部分会被整段丢掉。
-            var outBuf = new byte[FrameBytes];
-            var outFilled = 0;
+            _outBuf.Clear();
 
             capture.DataAvailable += (_, e) =>
             {
@@ -203,77 +202,34 @@ public sealed class AudioCaptureService : IDisposable
                     return;
                 }
 
-                var inputChannels = Math.Max(1, capture.WaveFormat.Channels);
-                var inputRate = capture.WaveFormat.SampleRate;
-                var step = inputRate / (double)SampleRate;
-
                 try
                 {
-                    var samples = e.Buffer;
-                    var count = e.BytesRecorded / (4 * inputChannels);
-
-                    // 首包做一次取值范围探测，确定归一化系数
-                    if (!_scaleDetected && count > 0)
+                    // 校验引擎确实按请求格式送数据。若不是，说明格式协商失败，
+                    // 此时按错误格式解释只会输出噪音，直接报错比静音更负责。
+                    if (!_formatChecked)
                     {
-                        _scaleDetected = true;
-                        var peak = 0f;
-                        for (var i = 0; i < count && i < 4096; i++)
+                        _formatChecked = true;
+                        if (e.BytesRecorded % 2 != 0)
                         {
-                            for (var c = 0; c < inputChannels; c++)
-                            {
-                                var a = Math.Abs(samples[i * inputChannels + c]);
-                                if (a > peak) peak = a;
-                            }
+                            throw new InvalidOperationException(
+                                $"麦克风返回的数据长度（{e.BytesRecorded} 字节）不是 16-bit PCM 的整数倍，格式协商失败");
                         }
 
-                        if (peak > 4f)
-                        {
-                            // 不是归一化浮点：按量级反推原始位深再归一化
-                            _scale = peak > 20000f ? 1.0 / 2147483648.0
-                                    : peak > 2000f ? 1.0 / 32768.0
-                                    : 1.0 / 128.0;
-                            _formatAnomaly = true;
-                            _logger.LogWarning(
-                                "麦克风返回的样本超出 IEEE float 范围（峰值 {Peak}），已按 {Div} 自动归一化；" +
-                                "该设备的驱动可能未按协商格式送数据", peak, _scale);
-                        }
+                        _logger.LogInformation("麦克风采集格式确认：{Recorded} 字节/批 ≈ {Ms}ms",
+                            e.BytesRecorded,
+                            Math.Round(e.BytesRecorded * 1000.0 / (SampleRate * BitsPerSample / 8 * Channels)));
                     }
 
-                    while (_pos < count)
+                    _outBuf.AddRange(e.Buffer.Take(e.BytesRecorded));
+
+                    // 凑满一帧发一帧
+                    while (_outBuf.Count >= FrameBytes)
                     {
-                        var idx = (int)_pos;
-
-                        // 左右声道求平均得到单声道
-                        var mono = 0f;
-                        var baseIdx = idx * inputChannels;
-                        for (var c = 0; c < inputChannels; c++)
-                        {
-                            mono += samples[baseIdx + c];
-                        }
-
-                        mono /= inputChannels;
-
-                        // 线性插值后推进位置
-                        var frac = _pos - idx;
-                        var scaled = (float)(mono * _scale);
-                        var interpolated = _lastSample + (scaled - _lastSample) * frac;
-                        _lastSample = scaled;
-                        _pos += step;
-
-                        var v = (short)Math.Clamp(interpolated * 32767f, -32768f, 32767f);
-                        BitConverter.GetBytes(v).CopyTo(outBuf, outFilled);
-                        outFilled += 2;
-
-                        if (outFilled == FrameBytes)
-                        {
-                            onLevel(CalculateDb(outBuf, BitsPerSample));
-                            onFrame(outBuf);
-                            outFilled = 0;
-                        }
+                        var frame = _outBuf.Take(FrameBytes).ToArray();
+                        _outBuf.RemoveRange(0, FrameBytes);
+                        onLevel(CalculateDb(frame, BitsPerSample));
+                        onFrame(frame);
                     }
-
-                    // 本批读完，把位置挪回缓冲区起点，供下一批续上
-                    _pos -= count;
                 }
                 catch (Exception ex)
                 {
@@ -281,10 +237,18 @@ public sealed class AudioCaptureService : IDisposable
                 }
             };
 
+            capture.RecordingStopped += (_, e) =>
+            {
+                if (e?.Exception != null)
+                {
+                    _logger.LogWarning(e.Exception, "麦克风采集异常停止");
+                }
+            };
+
             capture.StartRecording();
 
             var name = device.FriendlyName;
-            _logger.LogInformation("麦克风采集已启动（设备 {Name}，输出 {Rate}Hz/{Bits}bit/{Channels}ch）",
+            _logger.LogInformation("麦克风采集已启动（设备 {Name}，{Rate}Hz/{Bits}bit/{Channels}ch）",
                 name, SampleRate, BitsPerSample, Channels);
             return name;
         }
@@ -355,6 +319,7 @@ public sealed class AudioCaptureService : IDisposable
             {
                 _deviceId = devices[index].Id;
                 _deviceCache = null;
+                _currentIndex = index;
             }
         }
     }
@@ -392,6 +357,8 @@ public sealed class AudioCaptureService : IDisposable
         var device = _device;
         _capture = null;
         _device = null;
+        _formatChecked = false;
+        _outBuf.Clear();
 
         if (capture != null)
         {
