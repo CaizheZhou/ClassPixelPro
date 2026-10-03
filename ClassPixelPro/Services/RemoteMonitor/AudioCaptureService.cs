@@ -77,6 +77,14 @@ public sealed class AudioCaptureService : IDisposable
     private double _pos;
     private float _lastSample;
 
+    // 某些驱动（尤其是虚拟化环境 / 声卡回环）虽然声称给的是 IEEE float，
+    // 实际送来的却是 0~255 的原始字节。不做归一化的话，这些值乘 32767 会被
+    // 截断成满刻度——听感是巨大噪音，电平恒为 0 dBFS。这里按首包的实际取值
+    // 范围反推编码并归一化。
+    private double _scale = 1.0;
+    private bool _scaleDetected;
+    private bool _formatAnomaly;
+
     public AudioCaptureService(ILogger<AudioCaptureService> logger)
     {
         _logger = logger;
@@ -204,6 +212,33 @@ public sealed class AudioCaptureService : IDisposable
                     var samples = e.Buffer;
                     var count = e.BytesRecorded / (4 * inputChannels);
 
+                    // 首包做一次取值范围探测，确定归一化系数
+                    if (!_scaleDetected && count > 0)
+                    {
+                        _scaleDetected = true;
+                        var peak = 0f;
+                        for (var i = 0; i < count && i < 4096; i++)
+                        {
+                            for (var c = 0; c < inputChannels; c++)
+                            {
+                                var a = Math.Abs(samples[i * inputChannels + c]);
+                                if (a > peak) peak = a;
+                            }
+                        }
+
+                        if (peak > 4f)
+                        {
+                            // 不是归一化浮点：按量级反推原始位深再归一化
+                            _scale = peak > 20000f ? 1.0 / 2147483648.0
+                                    : peak > 2000f ? 1.0 / 32768.0
+                                    : 1.0 / 128.0;
+                            _formatAnomaly = true;
+                            _logger.LogWarning(
+                                "麦克风返回的样本超出 IEEE float 范围（峰值 {Peak}），已按 {Div} 自动归一化；" +
+                                "该设备的驱动可能未按协商格式送数据", peak, _scale);
+                        }
+                    }
+
                     while (_pos < count)
                     {
                         var idx = (int)_pos;
@@ -220,8 +255,9 @@ public sealed class AudioCaptureService : IDisposable
 
                         // 线性插值后推进位置
                         var frac = _pos - idx;
-                        var interpolated = _lastSample + (mono - _lastSample) * frac;
-                        _lastSample = mono;
+                        var scaled = (float)(mono * _scale);
+                        var interpolated = _lastSample + (scaled - _lastSample) * frac;
+                        _lastSample = scaled;
                         _pos += step;
 
                         var v = (short)Math.Clamp(interpolated * 32767f, -32768f, 32767f);
