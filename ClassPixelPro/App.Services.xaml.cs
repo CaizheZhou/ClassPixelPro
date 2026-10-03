@@ -107,6 +107,7 @@ public partial class App
         services.AddSingleton<ScreenCaptureService>();
         services.AddSingleton<CameraCaptureService>();
         services.AddSingleton<AudioPlaybackService>();
+        services.AddSingleton<AudioCaptureService>();
         services.AddSingleton<CloudflaredManager>();
         services.AddSingleton<RemoteMonitorService>();
         services.AddSingleton<Services.RemoteMonitor.TeacherBindingGate>();

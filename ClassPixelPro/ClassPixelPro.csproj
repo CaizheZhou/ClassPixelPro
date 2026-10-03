@@ -91,6 +91,9 @@
         <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
         <!-- 远程监控：音频播放（运行时仅 Windows 可用，编译期跨平台引用） -->
         <PackageReference Include="NAudio" Version="2.2.1" />
+        <!-- NAudio 2.2.x 拆成多个子包，门面包只做类型转发；直接引用需要用到的子包 -->
+        <PackageReference Include="NAudio.Core" Version="2.2.1" />
+        <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
         <!-- 远程监控：摄像头采集（OpenCV 包装，运行时仅 Windows 可用） -->
         <PackageReference Include="OpenCvSharp4" Version="4.10.0.20240616" />
         <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.10.0.20240616" />

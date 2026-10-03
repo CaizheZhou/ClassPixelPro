@@ -35,7 +35,8 @@ namespace ClassPixelPro.Services.RemoteMonitor;
 /// <list type="bullet">
 /// <item><c>GET /screenshot</c>：截屏返回 JPEG。</item>
 /// <item><c>WS /camera/stream</c>：推送摄像头 JPEG 帧（5-30fps 自适应）。</item>
-/// <item><c>WS /audio/receive</c>：接收 PCM 音频并播放。</item>
+/// <item><c>WS /audio/receive</c>：接收 PCM 音频并播放（传话）。</item>
+/// <item><c>WS /mic/stream</c>：推送现场声音 PCM 与 dB 电平（收音）。</item>
 /// <item><c>GET /status</c>：返回摄像头列表与可用性。</item>
 /// <item><c>POST /control</c>：控制命令（切换摄像头等）。</item>
 /// </list>
@@ -46,6 +47,7 @@ public sealed class RemoteMonitorService : IDisposable
     private readonly ScreenCaptureService _screenCapture;
     private readonly CameraCaptureService _cameraCapture;
     private readonly AudioPlaybackService _audioPlayback;
+    private readonly AudioCaptureService _audioCapture;
     private readonly CloudflaredManager _cloudflared;
 
     private IWebHost? _host;
@@ -105,12 +107,14 @@ public sealed class RemoteMonitorService : IDisposable
         ScreenCaptureService screenCapture,
         CameraCaptureService cameraCapture,
         AudioPlaybackService audioPlayback,
+        AudioCaptureService audioCapture,
         CloudflaredManager cloudflared)
     {
         _logger = logger;
         _screenCapture = screenCapture;
         _cameraCapture = cameraCapture;
         _audioPlayback = audioPlayback;
+        _audioCapture = audioCapture;
         _cloudflared = cloudflared;
     }
 
@@ -357,6 +361,9 @@ public sealed class RemoteMonitorService : IDisposable
                 case ("/audio/receive", "GET") when context.WebSockets.IsWebSocketRequest:
                     await HandleAudioReceiveAsync(context, ct);
                     break;
+                case ("/mic/stream", "GET") when context.WebSockets.IsWebSocketRequest:
+                    await HandleMicStreamAsync(context, ct);
+                    break;
                 default:
                     context.Response.StatusCode = 404;
                     await context.Response.WriteAsync("Not Found", ct);
@@ -458,6 +465,9 @@ public sealed class RemoteMonitorService : IDisposable
             screenCaptureSupported = _screenCapture.IsSupported,
             cameraCaptureSupported = _cameraCapture.IsSupported,
             audioPlaybackSupported = _audioPlayback.IsSupported,
+            audioCaptureSupported = _audioCapture.IsSupported,
+            audioFormat = AudioCaptureService.SampleRate + "/" + AudioCaptureService.BitsPerSample + "/" + AudioCaptureService.Channels,
+            micCapturing = _audioCapture.IsCapturing,
             cameras = cameras.Select(c => new { c.Index, c.Name, c.IsDefault }),
             currentCameraIndex = _cameraCapture.CurrentCameraIndex,
             tunnelUrl = TunnelUrl,
@@ -625,6 +635,100 @@ public sealed class RemoteMonitorService : IDisposable
                 Interlocked.Exchange(ref _activeViewerCount, 0);
             }
             ActiveViewerChanged?.Invoke();
+        }
+    }
+
+    // ===== 端点：WS /mic/stream（收音：大屏麦克风 → 班主任端）=====
+    private async Task HandleMicStreamAsync(HttpContext context, CancellationToken ct)
+    {
+        if (!_audioCapture.IsSupported)
+        {
+            context.Response.StatusCode = 501;
+            await context.Response.WriteAsync("麦克风采集仅在 Windows 上可用", ct);
+            return;
+        }
+
+        using var ws = await context.WebSockets.AcceptWebSocketAsync();
+        _logger.LogInformation("收音 WebSocket 已连接，班主任端开始监听现场声音");
+
+        // 帧先攒在这里，由发送循环按序发出。NAudio 的 DataAvailable 在自己的线程触发，
+        // 直接在里面 SendAsync 会和 WebSocket 的发送并发冲突。
+        var frameChannel = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
+        var captureCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var captureTask = Task.Run(() =>
+        {
+            void PushFrame(byte[] f) => frameChannel.Writer.TryWrite(f);
+            void PushLevel(double db) => frameChannel.Writer.TryWrite(
+                System.Text.Encoding.UTF8.GetBytes(
+                    "{\"type\":\"level\",\"db\":" +
+                    db.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}"));
+
+            try
+            {
+                // Start 内部即开始采集，帧与电平通过回调推入队列
+                _audioCapture.Start(PushFrame, PushLevel);
+            }
+            catch (OperationCanceledException)
+            {
+                // 客户端断开，正常退出
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning(e, "麦克风采集失败");
+                var err = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"error\",\"message\":\"" +
+                    e.Message.Replace("\"", "'") + "\"}");
+                frameChannel.Writer.TryWrite(err);
+                frameChannel.Writer.TryComplete();
+            }
+        }, captureCts.Token);
+
+        try
+        {
+            // 先告诉前端 PCM 参数，前端据此创建 AudioContext 的缓冲
+            var hello = System.Text.Encoding.UTF8.GetBytes(
+                "{\"type\":\"format\",\"sampleRate\":" + AudioCaptureService.SampleRate +
+                ",\"bits\":" + AudioCaptureService.BitsPerSample +
+                ",\"channels\":" + AudioCaptureService.Channels + "}");
+            await ws.SendAsync(hello, WebSocketMessageType.Text, true, ct);
+
+            await foreach (var frame in frameChannel.Reader.ReadAllAsync(ct))
+            {
+                // 文本帧（电平/格式/错误）以 '{' 开头便于前端区分
+                var isText = frame.Length > 0 && frame[0] == (byte)'{';
+                if (ws.State != WebSocketState.Open)
+                {
+                    break;
+                }
+
+                await ws.SendAsync(frame,
+                    isText ? WebSocketMessageType.Text : WebSocketMessageType.Binary,
+                    endOfMessage: true, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 客户端断开或取消，正常路径
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning(e, "收音 WebSocket 发送失败");
+        }
+        finally
+        {
+            captureCts.Cancel();
+            _audioCapture.Stop();
+            frameChannel.Writer.TryComplete();
+            try
+            {
+                await captureTask;
+            }
+            catch
+            {
+                // 忽略
+            }
+
+            _logger.LogInformation("收音 WebSocket 已断开，麦克风已释放");
         }
     }
 
