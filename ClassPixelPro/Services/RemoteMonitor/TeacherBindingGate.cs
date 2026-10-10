@@ -32,9 +32,13 @@ public class TeacherBindingGate
 
     /// <summary>
     /// 查询本设备是否已绑定班主任。
-    /// 未加入集控时直接返回 false；查询失败（网络等）也返回 false。
+    /// <list type="bullet">
+    /// <item><description><c>true</c>：已绑定。</description></item>
+    /// <item><description><c>false</c>：未加入集控，或查询成功但明确未绑定。</description></item>
+    /// <item><description><c>null</c>：查询失败（网络不可用等），调用方可退避重试。</description></item>
+    /// </list>
     /// </summary>
-    public async Task<bool> IsTeacherBoundAsync()
+    public async Task<bool?> IsTeacherBoundAsync()
     {
         if (!_managementService.IsManagementEnabled) return false;
 
@@ -51,8 +55,8 @@ public class TeacherBindingGate
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "查询班主任绑定状态失败（按未绑定处理）");
-            return false;
+            _logger.LogWarning(ex, "查询班主任绑定状态失败（网络不可用等）");
+            return null;
         }
     }
 

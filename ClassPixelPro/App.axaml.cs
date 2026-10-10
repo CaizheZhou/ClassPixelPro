@@ -785,12 +785,25 @@ public partial class App : AppBase, IAppHost
                         return;
                     }
 
-                    // 查询班主任绑定状态；未绑定或查询失败均不启动（宁可漏启，不可错启）
-                    var bound = await GetService<Services.RemoteMonitor.TeacherBindingGate>()
-                        .IsTeacherBoundAsync();
-                    if (!bound)
+                    // 查询班主任绑定状态。查询失败（如启动时尚未联网）会退避重试，
+                    // 直到网络恢复后拿到明确结果；明确未绑定则放弃。
+                    var gate = GetService<Services.RemoteMonitor.TeacherBindingGate>();
+                    bool? bound = null;
+                    var backoff = TimeSpan.FromSeconds(5);
+                    while (true)
                     {
-                        Logger.LogWarning("远程监控自启动跳过：未绑定班主任或查询失败");
+                        bound = await gate.IsTeacherBoundAsync();
+                        if (bound != null)
+                        {
+                            break;
+                        }
+                        Logger.LogWarning("远程监控自启动：绑定查询失败，{Backoff} 后重试", backoff);
+                        await Task.Delay(backoff);
+                        backoff = TimeSpan.FromTicks(Math.Min(backoff.Ticks * 2, TimeSpan.FromMinutes(2).Ticks));
+                    }
+                    if (bound != true)
+                    {
+                        Logger.LogWarning("远程监控自启动跳过：未绑定班主任");
                         return;
                     }
 

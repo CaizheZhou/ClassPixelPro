@@ -226,8 +226,8 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
         }
 
         var bound = await _teacherBindingGate.IsTeacherBoundAsync();
-        IsTeacherBound = bound;
-        PrerequisiteMessage = bound
+        IsTeacherBound = bound == true;
+        PrerequisiteMessage = bound == true
             ? ""
             : "远程监控需要先绑定班主任：请联系班主任在教师端完成本设备的绑定后，重试或刷新本页。";
         OnPropertyChanged(nameof(CanToggleMonitor));
