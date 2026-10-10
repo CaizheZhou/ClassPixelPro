@@ -20,26 +20,11 @@
                 <Run Text="加入管理"/>
             </TextBlock>
             <TextBlock Margin="0 8 0 0" TextWrapping="Wrap">
-                <Run Text="通过组织 ID 加入，或导入配置文件。"></Run>
+                <Run Text="输入组织 ID 加入管理。组织 ID 为 5 位大写字母或数字，可向管理员获取。"></Run>
             </TextBlock>
-            <ci:Field Label="组织 ID">
+            <ci:Field Label="组织 ID（必填）">
                 <TextBox Text="{Binding ViewModel.OrgId}" />
             </ci:Field>
-            <ci:Field Label="服务器地址（可选）">
-                <TextBox Text="{Binding ViewModel.ServerBaseUrl}" />
-            </ci:Field>
-            <Separator Margin="0 4 0 0"/>
-            <Grid Margin="0 8 0 0" ColumnDefinitions="*,Auto">
-                <TextBlock Grid.Column="0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
-                    <Run Text="配置文件："/>
-                    <Run Text="{Binding ViewModel.ConfigFilePath, Mode=OneWay}"/>
-                </TextBlock>
-                <local:FileBrowserButton Grid.Column="1"
-                                         FileTypes="{x:Static local:JoinManagementDialog.ManagementConfigFileTypes}"
-                                         FileSelected="FileBrowserButton_OnFileSelected"
-                                         Content="{ci:FluentIcon &#xe88d;}"
-                                         CurrentPath="{Binding ViewModel.ConfigFilePath, Mode=TwoWay}"/>
-            </Grid>
             <ci:Field Label="ID（可选）">
                 <TextBox Text="{Binding ViewModel.ManagementSettings.ClassIdentity}" />
             </ci:Field>
