@@ -23,7 +23,7 @@ public partial class AppLogsViewModel : ObservableRecipient
     [ObservableProperty] private bool _isFilteredCritical = true;
     [ObservableProperty] private bool _isFilteredError = true;
     [ObservableProperty] private bool _isFilteredWarning = true;
-    [ObservableProperty] private bool _isFilteredInfo = false;
+    [ObservableProperty] private bool _isFilteredInfo = true;
     [ObservableProperty] private bool _isFilteredDebug = false;
     [ObservableProperty] private bool _isFilteredTrace = false;
 
