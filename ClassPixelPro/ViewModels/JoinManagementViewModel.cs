@@ -12,6 +12,8 @@ public class JoinManagementViewModel : ObservableRecipient
     private bool _isConfigLoaded = false;
     private bool _isErrorMessageOpen = false;
     private bool _isWorking = false;
+    private string _orgId = "";
+    private string _serverBaseUrl = "https://class.imzcz.cn";
 
     public string ConfigFilePath
     {
@@ -43,6 +45,7 @@ public class JoinManagementViewModel : ObservableRecipient
             if (value == _isConfigLoaded) return;
             _isConfigLoaded = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CanJoin));
         }
     }
 
@@ -78,4 +81,32 @@ public class JoinManagementViewModel : ObservableRecipient
             OnPropertyChanged();
         }
     }
+
+    /// <summary>通过「组织 ID」加入时输入的 5 位短 ID。</summary>
+    public string OrgId
+    {
+        get => _orgId;
+        set
+        {
+            if (value == _orgId) return;
+            _orgId = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanJoin));
+        }
+    }
+
+    /// <summary>集控服务器地址（默认官方地址）。</summary>
+    public string ServerBaseUrl
+    {
+        get => _serverBaseUrl;
+        set
+        {
+            if (value == _serverBaseUrl) return;
+            _serverBaseUrl = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>有组织 ID 或已加载配置文件时，允许点「连接」。</summary>
+    public bool CanJoin => !string.IsNullOrWhiteSpace(OrgId) || IsConfigLoaded;
 }

@@ -79,6 +79,11 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// </summary>
     private const string DefaultHelpInfoApiBaseUrl = "https://class.imzcz.cn";
 
+    /// <summary>
+    /// 集控默认 base URL。「通过组织 ID 加入」时，未单独指定服务器地址则使用此地址。
+    /// </summary>
+    public const string DefaultManagementBaseUrl = "https://class.imzcz.cn";
+
     public static readonly string LocalManagementPolicyPath =
         Path.Combine(LocalManagementConfigureFolderPath, "Policy.json");
     public static readonly string LocalManagementCredentialsPath =
@@ -1554,6 +1559,26 @@ public class ManagementService : ObservableRecipient, IManagementService
     {
         Logger.LogInformation("保存集控配置");
         SaveConfig(ManagementVersionsPath, Versions);
+    }
+
+    private sealed class ResolveOrgResponse
+    {
+        public string Id { get; set; } = "";
+        public string OrganizationName { get; set; } = "";
+        public string ShortId { get; set; } = "";
+    }
+
+    /// <summary>
+    /// 通过 5 位短 ID 解析组织，返回其长 UUID。用于「通过组织 ID 加入集控」。
+    /// </summary>
+    public async Task<string> ResolveOrganizationIdAsync(string shortId, string? baseUrl = null)
+    {
+        var b = (baseUrl ?? DefaultManagementBaseUrl).TrimEnd('/');
+        var uri = new Uri($"{b}/api/mgmt/resolve?shortId={Uri.EscapeDataString(shortId.Trim().ToUpperInvariant())}");
+        var resolved = await WebRequestHelper.Default.GetJson<ResolveOrgResponse>(uri);
+        if (string.IsNullOrWhiteSpace(resolved.Id))
+            throw new Exception("服务器未返回有效的组织 ID。");
+        return resolved.Id;
     }
 
     public async Task JoinManagementAsync(ManagementSettings settings)

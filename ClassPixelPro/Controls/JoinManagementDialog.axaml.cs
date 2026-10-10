@@ -9,6 +9,7 @@ using Avalonia.Platform.Storage;
 using ClassPixelPro.Core.Abstractions.Services.Management;
 using ClassPixelPro.Core.Controls;
 using ClassPixelPro.Shared;
+using ClassPixelPro.Shared.Enums;
 using ClassPixelPro.Shared.Helpers;
 using ClassPixelPro.Shared.Models.Management;
 using ClassPixelPro.ViewModels;
@@ -100,8 +101,32 @@ public partial class JoinManagementDialog : MyWindow
     {
         ViewModel.IsWorking = true;
         try
-        { 
-            await ManagementService.JoinManagementAsync(ViewModel.ManagementSettings);
+        {
+            ManagementSettings settings;
+            if (!string.IsNullOrWhiteSpace(ViewModel.OrgId))
+            {
+                // 通过组织 ID 加入：解析短 ID → 长 UUID → 构造配置
+                var baseUrl = (ViewModel.ServerBaseUrl ?? "").Trim().TrimEnd('/');
+                if (string.IsNullOrWhiteSpace(baseUrl))
+                {
+                    baseUrl = "https://class.imzcz.cn";
+                }
+                var orgId = await ManagementService.ResolveOrganizationIdAsync(ViewModel.OrgId, baseUrl);
+                settings = new ManagementSettings
+                {
+                    IsManagementEnabled = true,
+                    ManagementServerKind = ManagementServerKind.Serverless,
+                    ManagementServer = "",
+                    ManagementServerGrpc = "",
+                    ManifestUrlTemplate = $"{baseUrl}/api/mgmt/{orgId}/serverless/manifest?cuid={{cuid}}&id={{id}}",
+                    ClassIdentity = ViewModel.ManagementSettings.ClassIdentity ?? ""
+                };
+            }
+            else
+            {
+                settings = ViewModel.ManagementSettings;
+            }
+            await ManagementService.JoinManagementAsync(settings);
         }
         catch (Exception exception)
         {

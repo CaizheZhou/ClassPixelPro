@@ -61,6 +61,11 @@ public interface IManagementService
     /// </summary>
     /// <param name="settings">集控服务器配置</param>
     Task JoinManagementAsync(ManagementSettings settings);
+
+    /// <summary>
+    /// 通过 5 位短 ID 解析组织，返回其长 UUID。用于「通过组织 ID 加入集控」。
+    /// </summary>
+    Task<string> ResolveOrganizationIdAsync(string shortId, string? baseUrl = null);
     
     /// <summary>
     /// 退出集控服务器。
