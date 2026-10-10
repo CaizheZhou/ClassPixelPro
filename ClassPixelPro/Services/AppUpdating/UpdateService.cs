@@ -73,6 +73,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
     public static readonly string[] AllowedPackageTypes = ["folder", "folderClassic", "installer"];
 
     private CancellationTokenSource? _downloadCancellationTokenSource;
+    private TaskCompletionSource? _downloadCompletion;
     private int _downloadedCount = 0;
     private int _downloadingCountTotal = 0;
     private bool _isDownloadingProgressIndeterminate = false;
@@ -380,6 +381,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
         {
             return;
         }
+        _downloadCompletion = new TaskCompletionSource();
         var transaction = SentrySdk.StartTransaction("Download Update", "appUpdating.download");
         var spanDeletePreviousFile = transaction.StartChild("deletePreviousFile");
         try
@@ -451,6 +453,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 DownloadingCountTotal = hasTotal ? (int)Math.Min(contentLength!.Value, int.MaxValue) : 1;
                 DownloadedCount = 0;
                 IsDownloadingProgressIndeterminate = !hasTotal;
+                Logger.LogInformation("开始下载整包更新：{Url}，总大小 {Total} 字节", fileMap.ArchiveUrl, contentLength ?? 0);
 
                 await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationTokenArchive);
                 await using var fileStream = File.Create(archivePath);
@@ -698,6 +701,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 CurrentWorkingStatus = UpdateWorkingStatus.Idle;
             }
             _downloadCancellationTokenSource = null;
+            _downloadCompletion?.TrySetResult();
         }
     }
 
@@ -715,6 +719,13 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
             {
                 // ignored
             }
+        }
+
+        // 等待下载循环真正退出并释放文件句柄，再删除临时目录，
+        // 否则会因 archive.zip 仍被占用而抛 IOException（此前取消下载的报错来源）
+        if (_downloadCompletion != null)
+        {
+            await _downloadCompletion.Task;
         }
 
         _downloadCancellationTokenSource = null;
