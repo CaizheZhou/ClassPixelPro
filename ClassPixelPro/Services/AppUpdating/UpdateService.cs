@@ -455,6 +455,17 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 IsDownloadingProgressIndeterminate = !hasTotal;
                 Logger.LogInformation("开始下载整包更新：{Url}，总大小 {Total} 字节", fileMap.ArchiveUrl, contentLength ?? 0);
 
+                // 整包下载也往「查看下载状态」抽屉里放一个任务条目。此前该抽屉只显示
+                // 逐文件下载的任务列表，整包模式下是空的，用户完全看不到下载进度。
+                DownloadTasks.Clear();
+                var archiveTask = new DownloadTaskInfo()
+                {
+                    FileName = fileMap.ArchiveUrl.Split('/').LastOrDefault() ?? "archive.zip",
+                    Key = "archive",
+                    State = DownloadState.Downloading
+                };
+                DownloadTasks.Add(archiveTask);
+
                 await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationTokenArchive);
                 await using var fileStream = File.Create(archivePath);
 
@@ -462,6 +473,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 int bytesRead;
                 long totalDownloaded = 0;
                 var progressStopwatch = Stopwatch.StartNew();
+                var downloadStopwatch = Stopwatch.StartNew();
                 while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationTokenArchive)) > 0)
                 {
                     await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationTokenArchive);
@@ -472,10 +484,25 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                     }
                     progressStopwatch.Restart();
                     var downloaded = (int)Math.Min(totalDownloaded, DownloadingCountTotal);
-                    Dispatcher.UIThread.InvokeAsync(() => DownloadedCount = downloaded);
+                    var speed = downloadStopwatch.Elapsed.TotalSeconds > 1
+                        ? totalDownloaded / downloadStopwatch.Elapsed.TotalSeconds
+                        : 0;
+                    var eta = TimeSpanHelper.FromSecondsSafe(hasTotal && speed > 0
+                        ? (long)((contentLength!.Value - totalDownloaded) / speed)
+                        : 0);
+                    Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        DownloadedCount = downloaded;
+                        archiveTask.DownloadedSize = totalDownloaded;
+                        archiveTask.FileSize = hasTotal ? contentLength!.Value : 0;
+                        archiveTask.DownloadSpeed = speed;
+                        archiveTask.TimeToComplete = eta;
+                    });
                 }
 
                 DownloadedCount = DownloadingCountTotal;
+                archiveTask.State = DownloadState.Completed;
+                archiveTask.DownloadedSize = totalDownloaded;
                 Logger.LogInformation("整包下载完成，大小: {Size} 字节", totalDownloaded);
 
                 // 保存 FileMap 和签名
