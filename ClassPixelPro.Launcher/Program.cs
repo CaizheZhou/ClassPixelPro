@@ -31,7 +31,9 @@ var installation = Directory.GetDirectories(root)
     .Where(x => Path.GetFileName(x).StartsWith("app") &&
                 !(File.Exists(Path.Combine(x, ".destroy")) || File.Exists(Path.Combine(x, ".partial"))) &&
                 File.Exists(Path.Combine(x, executableName)))
-    .OrderBy(x => File.Exists(Path.Combine(x, ".current")) ? 1 : 0)
+    // 必须优先选带 .current 标记的目录：更新后会同时保留一个 .prev 旧版本目录
+    // 供恢复模式回滚，若这里按升序取「没有 .current 的」，就会启动成旧版本。
+    .OrderByDescending(x => File.Exists(Path.Combine(x, ".current")) ? 1 : 0)
     .ThenByDescending(x =>
     {
         var filename = Path.GetFileName(x);

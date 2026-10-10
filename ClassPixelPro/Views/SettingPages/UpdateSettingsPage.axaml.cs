@@ -158,6 +158,12 @@ public partial class UpdateSettingsPage : SettingsPageBase
         AppBase.Current.Restart(["-m"], true);
     }
 
+    private async void SettingsExpanderItemVersionManager_OnClick(object? sender, RoutedEventArgs e)
+    {
+        await ClassPixelPro.Helpers.DeploymentManager.ShowVersionManagerAsync(
+            Avalonia.Controls.TopLevel.GetTopLevel(this));
+    }
+
     private async void SettingsExpanderItemCheckUpdateForce_OnClick(object? sender, RoutedEventArgs e)
     {
         await ViewModel.UpdateService.CheckUpdateAsync(true);

@@ -381,6 +381,16 @@
                             </controls:SettingsExpanderItem>
                         </controls:SettingsExpander>
                         
+                        <!-- 版本管理 -->
+                        <controls:SettingsExpander IconSource="{ci:FluentIconSource &#xe135;}"
+                                                   Header="版本管理"
+                                                   Description="保留的历史版本可用于回滚。删除不再需要的旧版本可以释放磁盘空间。">
+                            <controls:SettingsExpanderItem Content="打开版本管理"
+                                                           IsClickEnabled="True"
+                                                           Click="SettingsExpanderItemVersionManager_OnClick"
+                                                           ActionIconSource="{ci:FluentIconSource &#xe44e;}"/>
+                        </controls:SettingsExpander>
+                        
                     </StackPanel>
                 </TabItem>
                 <TabItem Header="(debug)调试设置" IsVisible="{Binding IsDevelopmentBuild, Source={x:Static ci:AppBase.Current}}">

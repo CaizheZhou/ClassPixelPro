@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using ClassPixelPro.Core;
 using ClassPixelPro.Core.Helpers.UI;
+using ClassPixelPro.Helpers;
 using ClassPixelPro.Services;
 using FluentAvalonia.UI.Controls;
 using System;
@@ -215,9 +216,8 @@ public partial class HomePage : UserControl
         }
     }
 
-    private void ButtonRollBack_Onclick(object sender, RoutedEventArgs e)
+    private async void ButtonRollBack_Onclick(object sender, RoutedEventArgs e)
     {
-        //TODO:实现回滚功能(版本管理器)
-        this.ShowToast("此功能仍在开发中");
+        await DeploymentManager.ShowVersionManagerAsync(TopLevel.GetTopLevel(this));
     }
 }

@@ -225,8 +225,8 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
         // 往往尚未完全退出、文件仍被占用，删除失败后异常被捕获仅记日志，
         // 状态随即转为 UpToDate，此后永远不会重试——表现为 app-<旧版本> 目录
         // 每次 更新 后都留下 一个，永不清理。
-        // 该方法只删除带 .destroy 标记的目录（标记在部署新版本时写入旧版本目录，
-        // 不可能是当前正在运行的版本），因此每次启动调用一次是安全的：
+        // 该方法只删除带 .destroy 标记的目录（该标记由 MarkCurrentAsPrevious 在
+        // 清理更早的 .prev 时写入，不可能是当前正在运行的版本），因此每次启动调用一次是安全的：
         // 本次因文件占用删不掉的目录，下次启动会自动补删。
         //
         // 注意顺序：必须先清扫孤儿 cloudflared 进程再清理目录——孤儿进程持有旧版本
@@ -442,9 +442,15 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 using var response = await httpClient.GetAsync(fileMap.ArchiveUrl, HttpCompletionOption.ResponseHeadersRead, cancellationTokenArchive);
                 response.EnsureSuccessStatusCode();
 
-                DownloadingCountTotal = 1;
+                // 进度以「字节」为单位直接喂给 DownloadingCountTotal/DownloadedCount
+                // （UI 的 ProgressBar 就是绑这两个值）。经 gh-proxy 之类的加速代理时
+                // 响应可能是 chunked 而没有 Content-Length，此时退化为不确定进度条，
+                // 而不是像以前那样 Maximum=1、Value 只在开头 0 和结尾 1 之间跳变。
+                var contentLength = response.Content.Headers.ContentLength;
+                var hasTotal = contentLength is > 0;
+                DownloadingCountTotal = hasTotal ? (int)Math.Min(contentLength!.Value, int.MaxValue) : 1;
                 DownloadedCount = 0;
-                IsDownloadingProgressIndeterminate = false;
+                IsDownloadingProgressIndeterminate = !hasTotal;
 
                 await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationTokenArchive);
                 await using var fileStream = File.Create(archivePath);
@@ -452,13 +458,21 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
                 var buffer = new byte[81920];
                 int bytesRead;
                 long totalDownloaded = 0;
+                var progressStopwatch = Stopwatch.StartNew();
                 while ((bytesRead = await contentStream.ReadAsync(buffer, cancellationTokenArchive)) > 0)
                 {
                     await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationTokenArchive);
                     totalDownloaded += bytesRead;
+                    if (!hasTotal || progressStopwatch.ElapsedMilliseconds < 250)
+                    {
+                        continue;
+                    }
+                    progressStopwatch.Restart();
+                    var downloaded = (int)Math.Min(totalDownloaded, DownloadingCountTotal);
+                    Dispatcher.UIThread.InvokeAsync(() => DownloadedCount = downloaded);
                 }
 
-                DownloadedCount = 1;
+                DownloadedCount = DownloadingCountTotal;
                 Logger.LogInformation("整包下载完成，大小: {Size} 字节", totalDownloaded);
 
                 // 保存 FileMap 和签名
@@ -861,7 +875,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
 
                 // 激活新部署
                 await File.WriteAllTextAsync(Path.Combine(archiveAppPath, ".current"), "");
-                await File.WriteAllTextAsync(Path.Combine(Environment.CurrentDirectory, ".destroy"), "");
+                DeploymentManager.MarkCurrentAsPrevious();
                 File.Delete(Path.Combine(archiveAppPath, ".partial"));
                 foreach (var deployment in Directory.GetDirectories(rootArchive)
                              .Where(x => Path.GetFileName(x).StartsWith("app")
@@ -1047,7 +1061,7 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
             Logger.LogInformation("正在激活新的部署");
             
             await File.WriteAllTextAsync(Path.Combine(appPath, ".current"), "");
-            await File.WriteAllTextAsync(Path.Combine(Environment.CurrentDirectory, ".destroy"), "");
+            DeploymentManager.MarkCurrentAsPrevious();
             File.Delete(Path.Combine(appPath, ".partial"));
             foreach (var deployment in Directory.GetDirectories(root)
                          .Where(x => Path.GetFileName(x).StartsWith("app") 
@@ -1084,11 +1098,33 @@ public class UpdateService : IHostedService, INotifyPropertyChanged
     public void CleanupPrevDeployments()
     {
         var root = CommonDirectories.AppPackageRoot;
+        var hasPrevious = Directory.GetDirectories(root)
+            .Any(x => File.Exists(Path.Combine(x, ".prev")));
         foreach (var deployment in Directory.GetDirectories(root)
                      .Where(x => Path.GetFileName(x).StartsWith("app")
                                  && Path.GetFullPath(Path.Combine(root, x)) != Path.GetFullPath(Environment.CurrentDirectory)
                                  && File.Exists(Path.Combine(x, ".destroy"))))
         {
+            // 兼容旧版本的部署逻辑：旧代码把上一版本标记为 .destroy 直接删除。既然现在要保留
+            // 一个版本用于回滚，就把第一个完整可用的待删目录转成 .prev 留下，让「回滚」在
+            // 升级后第一次启动即可用；其余待删目录照旧删除。
+            if (!hasPrevious &&
+                File.Exists(Path.Combine(deployment, "ClassPixelPro.Desktop" + AppBase.PlatformExecutableExtension)))
+            {
+                Logger.LogInformation("将先前的部署保留为可回滚版本：{}", deployment);
+                try
+                {
+                    File.Delete(Path.Combine(deployment, ".destroy"));
+                    File.WriteAllText(Path.Combine(deployment, ".prev"), "");
+                    hasPrevious = true;
+                    continue;
+                }
+                catch (Exception e)
+                {
+                    Logger.LogError(e, "无法保留先前部署 {} 用于回滚", deployment);
+                }
+            }
+
             Logger.LogInformation("正在清理先前的部署：{}", deployment);
             try
             {
