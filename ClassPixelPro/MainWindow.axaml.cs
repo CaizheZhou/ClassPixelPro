@@ -22,6 +22,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using ClassPixelPro.Controls;
 using ClassPixelPro.Controls.EditMode;
 using ClassPixelPro.Core;
 using ClassPixelPro.Core.Abstractions.Services;
@@ -55,6 +56,7 @@ using CommunityToolkit.Mvvm.Input;
 using FluentAvalonia.UI.Controls;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
+using System.Web;
 
 using Sentry;
 using Linearstar.Windows.RawInput;
@@ -374,6 +376,7 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
 
         UriNavigationService.HandleAppNavigation("class-swap", args => OpenClassSwapWindow());
         UriNavigationService.HandleAppNavigation("edit", args => EnterEditMode());
+        UriNavigationService.HandleAppNavigation("join-management", args => OpenJoinManagement(args.Uri));
 
         IAppHost.GetService<ISplashService>().SetDetailedStatus("正在初始化输入");
         if (SettingsService.Settings.UseRawInput)
@@ -1353,6 +1356,38 @@ public partial class MainWindow : Window, ITopmostEffectPlayer
     public void OpenProfileSettingsWindow(Uri? uri = null)
     {
         App.GetService<ProfileSettingsWindow>().Open(uri);
+    }
+
+    /// <summary>
+    /// 通过 classpixelpro://app/join-management?orgId=XXXXX 深链接加入集控。
+    /// 解析 orgId（5 位短 ID）并打开「加入管理」对话框，预填组织 ID，用户只需再填设备 ID 即可。
+    /// </summary>
+    private async void OpenJoinManagement(Uri uri)
+    {
+        var query = HttpUtility.ParseQueryString(uri.Query);
+        var orgId = (query["orgId"] ?? "").Trim().ToUpperInvariant();
+
+        // 已加入管理时不允许重复加入，直接给出明确提示。
+        if (ManagementService.IsManagementEnabled)
+        {
+            await CommonTaskDialogs.ShowDialog(
+                "无法加入管理",
+                "当前设备已加入管理。如需更换组织，请先在「设置 → 集控」中退出当前管理，再重新加入。");
+            return;
+        }
+
+        // orgId 缺失或格式不对（短 ID 是 5 位大写字母/数字）。
+        if (string.IsNullOrWhiteSpace(orgId) || !System.Text.RegularExpressions.Regex.IsMatch(orgId, "^[A-Z0-9]{5}$"))
+        {
+            await CommonTaskDialogs.ShowDialog(
+                "无法加入管理",
+                "链接中的组织 ID 无效，请从「寻找组织」页面重新获取链接。");
+            return;
+        }
+
+        var dialog = new JoinManagementDialog();
+        dialog.ViewModel.OrgId = orgId;
+        await dialog.ShowDialog(this);
     }
 
     private async void OpenClassSwapWindow()
