@@ -17,6 +17,7 @@ public class ManagementPolicy : ObservableRecipient
     private bool _disableDebugMenu = false;
     private bool _allowExitManagement = true;
     private bool _disableEasterEggs = false;
+    private bool _forceRemoteMonitor = false;
 
     public bool DisableProfileClassPlanEditing
     {
@@ -70,5 +71,15 @@ public class ManagementPolicy : ObservableRecipient
     {
         get => _disableEasterEggs;
         set => SetProperty(ref _disableEasterEggs, value);
+    }
+
+    /// <summary>
+    /// 强制开启远程监控：为 true 时无论本地开关如何，客户端都会启动远程监控服务，
+    /// 且本地设置页的开关被禁用。由集控后台策略下发。
+    /// </summary>
+    public bool ForceRemoteMonitor
+    {
+        get => _forceRemoteMonitor;
+        set => SetProperty(ref _forceRemoteMonitor, value);
     }
 }

@@ -87,7 +87,15 @@ public class TeacherNotificationProvider : NotificationProviderBase
             {
                 if (payload.SoundEnabled)
                 {
-                    await PlayNotificationSoundAsync(payload.MaxVolume);
+                    // 提示音失败不应连带跳过朗读，单独捕获
+                    try
+                    {
+                        await PlayNotificationSoundAsync(payload.MaxVolume);
+                    }
+                    catch (Exception exSound)
+                    {
+                        Logger.LogWarning(exSound, "播放班主任通知提示音失败");
+                    }
                 }
 
                 if (payload.TtsEnabled)
@@ -149,7 +157,10 @@ public class TeacherNotificationProvider : NotificationProviderBase
         var path = await edgeTts.SynthesizeToFileAsync(text);
         if (path == null)
         {
-            Logger.LogWarning("朗读语音合成失败，跳过朗读：{}", text);
+            // EdgeTTS 合成失败（常见于教室网络访问不了 speech.platform.bing.com）。
+            // 直接跳过会让"勾选了文本朗读却听不到"，退回朗读队列兜底发声。
+            Logger.LogWarning("EdgeTTS 朗读合成失败，退回朗读队列：{}", text);
+            edgeTts.EnqueueSpeechQueue(text);
             return;
         }
 

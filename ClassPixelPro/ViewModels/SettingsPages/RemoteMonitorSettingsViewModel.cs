@@ -152,8 +152,10 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
 
     /// <summary>
     /// 远程监控开关是否可用（前置条件满足且不在操作中）。
+    /// 集控策略「强制开启远程监控」时开关被禁用，用户不能在本地关闭。
     /// </summary>
-    public bool CanToggleMonitor => (IsManagementReady && IsTeacherBound) && !IsBusy;
+    public bool CanToggleMonitor => (IsManagementReady && IsTeacherBound) && !IsBusy
+        && !_managementService.Policy.ForceRemoteMonitor;
 
     public RemoteMonitorSettingsViewModel(
         SettingsService settingsService,
@@ -336,6 +338,16 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
     {
         if (IsBusy) return;
 
+        // 集控策略强制开启时禁止本地关闭（开关虽已禁用，这里做命令级兜底）
+        if (!_settingsService.Settings.IsRemoteMonitorEnabled
+            && _managementService.Policy.ForceRemoteMonitor)
+        {
+            _settingsService.Settings.IsRemoteMonitorEnabled = true;
+            OnPropertyChanged(nameof(CanToggleMonitor));
+            _logger.LogInformation("远程监控被集控策略强制开启，已忽略本地关闭操作");
+            return;
+        }
+
         // 前置条件门禁：必须已加入集控且已绑定班主任。开关的 CheckedChanged 已把
         // Settings 翻转，这里先实时复核一次前置条件，不满足则回滚开关——
         // 原因显示在页面顶部横幅（PrerequisiteMessage）。
@@ -496,6 +508,14 @@ public partial class RemoteMonitorSettingsViewModel : ObservableRecipient
         }
         finally
         {
+            // 测试完成后释放摄像头：CaptureFrameAsJpeg 会打开设备并一直持有句柄，
+            // 若监控服务未运行则无人释放，摄像头指示灯/占用会一直持续。
+            // 监控运行中不能释放（推流循环正在用），由 StopAsync 统一释放。
+            if (!_remoteMonitorService.IsRunning)
+            {
+                try { _cameraCaptureService.ReleaseCamera(); }
+                catch (Exception exRelease) { _logger.LogWarning(exRelease, "测试后释放摄像头失败"); }
+            }
             IsTestingCamera = false;
         }
     }

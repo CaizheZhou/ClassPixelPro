@@ -627,12 +627,17 @@ public sealed class RemoteMonitorService : IDisposable
             _logger.LogInformation(
                 "摄像头 WebSocket 已断开（fps={Fps}, quality={Quality}, 累计发送 {MB:F1} MB）",
                 currentFps, jpegQuality, totalBytesSent / 1048576.0);
-            // 断开时不释放摄像头：保持设备占用，重连免走 DSHOW 慢速打开（1-3 秒黑屏）。
-            // 释放只发生在 StopAsync 与显式切换摄像头时。
+            // 最后一个查看者断开后释放摄像头：班主任关闭页面后设备摄像头不应继续被占用。
+            // 重连时 CaptureFrameAsJpeg 会自动重新打开（首次打开慢 1-3 秒，可接受）。
             var newCount = Interlocked.Decrement(ref _activeViewerCount);
             if (newCount < 0)
             {
                 Interlocked.Exchange(ref _activeViewerCount, 0);
+            }
+            if (newCount <= 0)
+            {
+                try { _cameraCapture.ReleaseCamera(); }
+                catch (Exception exRelease) { _logger.LogWarning(exRelease, "查看者断开后释放摄像头失败"); }
             }
             ActiveViewerChanged?.Invoke();
         }

@@ -20,6 +20,7 @@ using ClassPixelPro.Helpers;
 using ClassPixelPro.Models;
 using ClassPixelPro.Models.Authorize;
 using ClassPixelPro.Services;
+using ClassPixelPro.Services.RemoteMonitor;
 using ClassPixelPro.Shared;
 using ClassPixelPro.Shared.Protobuf.AuditEvent;
 using ClassPixelPro.Shared.Protobuf.Client;
@@ -693,6 +694,8 @@ public class ManagementService : ObservableRecipient, IManagementService
                 Policy = newPolicy;
                 SaveConfig(ManagementPolicyPath, Policy);
                 Versions.PolicyVersion = newManifest.PolicySource.Version;
+                // 策略「强制开启远程监控」需要立即生效（启动/保持监控服务）
+                await ApplyForceRemoteMonitorPolicyAsync();
             }
             if (newCredential != null)
             {
@@ -1527,7 +1530,17 @@ public class ManagementService : ObservableRecipient, IManagementService
         public int? RemainingSeconds { get; init; }
     }
 
-    private static readonly System.Text.Json.JsonSerializerOptions JsonHelperOptions = new(System.Text.Json.JsonSerializerDefaults.Web);
+    // 容错 Guid 转换：班主任端保存的课表档案里 SelectedClassPlanGroupId 等字段可能为 ""，
+    // 标准 System.Text.Json 反序列化 Guid? 会直接抛异常导致应用临时调课失败（调课日志报
+    // "The JSON value could not be converted to Nullable'1[System.Guid]"）。
+    private static readonly System.Text.Json.JsonSerializerOptions JsonHelperOptions = new(System.Text.Json.JsonSerializerDefaults.Web)
+    {
+        Converters =
+        {
+            new ClassPixelPro.Helpers.TolerantNullableGuidConverter(),
+            new ClassPixelPro.Helpers.TolerantGuidConverter()
+        }
+    };
 
     /// <summary>
     /// /api/help 接口响应包装格式：<c>{ type: 'md'|'struct', content: ... }</c>。
@@ -1590,6 +1603,45 @@ public class ManagementService : ObservableRecipient, IManagementService
 
         /// <summary>档案名称。</summary>
         public string? Name { get; set; }
+    }
+
+    /// <summary>
+    /// 是否由集控策略「强制开启远程监控」启动的监控服务。
+    /// 策略取消强制时，据此决定是否停止由策略启动的服务（用户手动开启的不受影响）。
+    /// </summary>
+    private bool _forceMonitorStarted;
+
+    /// <summary>
+    /// 应用集控策略中的 ForceRemoteMonitor：强制开启时启动远程监控服务（幂等，已运行则跳过）；
+    /// 策略取消强制时，仅停止此前由策略启动的服务，用户手动开启的保持运行。
+    /// </summary>
+    private async Task ApplyForceRemoteMonitorPolicyAsync()
+    {
+        try
+        {
+            var remoteMonitor = IAppHost.TryGetService<RemoteMonitorService>();
+            if (remoteMonitor == null) return;
+
+            if (Policy.ForceRemoteMonitor)
+            {
+                if (!remoteMonitor.IsRunning)
+                {
+                    await remoteMonitor.StartAsync();
+                    _forceMonitorStarted = true;
+                    Logger.LogInformation("已按集控策略强制开启远程监控");
+                }
+            }
+            else if (_forceMonitorStarted && remoteMonitor.IsRunning)
+            {
+                await remoteMonitor.StopAsync();
+                _forceMonitorStarted = false;
+                Logger.LogInformation("集控策略已取消强制远程监控，策略启动的监控服务已停止");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "应用「强制开启远程监控」策略失败");
+        }
     }
 
     public void SaveSettings()
