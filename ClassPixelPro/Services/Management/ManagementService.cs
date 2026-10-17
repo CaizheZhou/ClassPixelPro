@@ -396,6 +396,43 @@ public class ManagementService : ObservableRecipient, IManagementService
         return match.Success ? match.Groups[1].Value : null;
     }
 
+    /// <summary>
+    /// 列出组织下可选的班级课表（供「选择班级」下拉使用），并返回当前设备的选班。
+    /// </summary>
+    public async Task<(List<ClassPlanOption> List, Guid? Current)> GetClassPlanListAsync()
+    {
+        var baseUrl = GetManagementBaseUrl();
+        if (string.IsNullOrEmpty(baseUrl)) return ([], null);
+        var url = $"{baseUrl}/api/mgmt/{GetOrgIdFromManifestTemplate()}/serverless/class-plan-list?cuid={Persist.ClientUniqueId}";
+        var resp = await WebRequestHelper.Default.GetJson<ClassPlanListResponse>(new Uri(url), retries: 1);
+        return (resp?.List ?? [], resp?.CurrentClassPlanId);
+    }
+
+    /// <summary>
+    /// 上报本设备选择的班级课表（classPlanId 为 null 表示改用组织全局课表）。
+    /// </summary>
+    public async Task SelectClassPlanAsync(Guid? classPlanId)
+    {
+        var baseUrl = GetManagementBaseUrl();
+        if (string.IsNullOrEmpty(baseUrl)) return;
+        var url = $"{baseUrl}/api/mgmt/{GetOrgIdFromManifestTemplate()}/serverless/select-class-plan";
+        var body = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            cuid = Persist.ClientUniqueId.ToString(),
+            classPlanId = classPlanId?.ToString()
+        });
+        using var httpClient = new HttpClient();
+        using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        var response = await httpClient.PostAsync(url, content);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private class ClassPlanListResponse
+    {
+        public List<ClassPlanOption>? List { get; set; }
+        public Guid? CurrentClassPlanId { get; set; }
+    }
+
     public async Task<bool> SetupManagement()
     {
         if (!IsManagementEnabled)

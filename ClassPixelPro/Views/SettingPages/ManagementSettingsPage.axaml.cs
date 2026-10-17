@@ -72,6 +72,12 @@ public partial class ManagementSettingsPage : SettingsPageBase
     private bool _isUpdatingConfigMode;
 
     /// <summary>
+    /// 服务端返回的班级课表列表。用于「选择班级」下拉。
+    /// </summary>
+    private List<ClassPlanOption>? _classPlans;
+    private bool _isUpdatingClassPlan;
+
+    /// <summary>
     /// 配置模式下拉框的选中索引。绑定到 <see cref="ConfigModeComboBox"/>.SelectedIndex。
     /// getter 从 <see cref="IManagementService.Manifest"/>.ConfigMode 映射，setter 由 SelectionChanged 事件处理。
     /// </summary>
@@ -127,6 +133,7 @@ public partial class ManagementSettingsPage : SettingsPageBase
 
         // 加载选配池列表和当前配置模式
         _ = LoadPoolConfigsAndSyncUI();
+        _ = LoadClassPlansAndSyncUI();
     }
 
     private void ManagementSettingsPage_OnUnloaded(object sender, RoutedEventArgs e)
@@ -174,6 +181,102 @@ public partial class ManagementSettingsPage : SettingsPageBase
         if (clipboard != null)
         {
             await clipboard.SetTextAsync(ManagementService.Persist.ClientUniqueId.ToString());
+        }
+    }
+
+    /// <summary>
+    /// 加载组织下可选的班级课表，并同步当前选班到 UI。
+    /// </summary>
+    private async Task LoadClassPlansAndSyncUI()
+    {
+        if (!ManagementService.IsManagementEnabled) return;
+        try
+        {
+            var (list, current) = await ManagementService.GetClassPlanListAsync();
+            _classPlans = list;
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (ClassPlanComboBox == null) return;
+                ClassPlanComboBox.Items.Clear();
+                ClassPlanComboBox.Items.Add("使用全局课表");
+                if (_classPlans != null)
+                {
+                    foreach (var p in _classPlans)
+                    {
+                        ClassPlanComboBox.Items.Add($"{p.Name} (v{p.Version})");
+                    }
+                }
+                SyncClassPlanUI(current);
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"加载班级课表列表失败: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 将当前设备的选班同步到下拉框（current 为服务端返回的 class_plan_id）。
+    /// </summary>
+    private void SyncClassPlanUI(Guid? current)
+    {
+        if (_isUpdatingClassPlan) return;
+        _isUpdatingClassPlan = true;
+        try
+        {
+            var idx = 0;
+            if (current != null && _classPlans != null)
+            {
+                var i = _classPlans.FindIndex(p => p.Id == current);
+                if (i >= 0) idx = i + 1;
+            }
+            ClassPlanComboBox.SelectedIndex = idx;
+        }
+        finally
+        {
+            _isUpdatingClassPlan = false;
+        }
+    }
+
+    /// <summary>
+    /// 班级课表下拉选中项变化：上报服务端，选班后课表自动拉取。
+    /// </summary>
+    private async void ClassPlanComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingClassPlan) return;
+        if (ClassPlanComboBox == null || _classPlans == null) return;
+
+        var idx = ClassPlanComboBox.SelectedIndex;
+        Guid? classPlanId = null;
+        string? className = null;
+        if (idx > 0 && idx - 1 < _classPlans.Count)
+        {
+            classPlanId = _classPlans[idx - 1].Id;
+            className = _classPlans[idx - 1].Name;
+        }
+
+        if (ClassPlanInfo != null)
+        {
+            ClassPlanInfo.IsVisible = true;
+            ClassPlanInfo.Text = className != null ? $"已选择班级：{className}，课表将自动拉取" : "已切换为使用全局课表";
+        }
+
+        try
+        {
+            await ManagementService.SelectClassPlanAsync(classPlanId);
+            // 选班后立即重载集控，让新课表马上生效（不等 5 秒轮询）。
+            // 后端已用 class_plan_epoch 保证切班后 classplan 版本单调递增，这里直接触发一次拉取即可。
+            if (ManagementService is Services.Management.ManagementService concrete)
+            {
+                _ = concrete.ReloadManagementAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            if (ClassPlanInfo != null)
+            {
+                ClassPlanInfo.Text = "选班失败：" + ex.Message;
+            }
         }
     }
 

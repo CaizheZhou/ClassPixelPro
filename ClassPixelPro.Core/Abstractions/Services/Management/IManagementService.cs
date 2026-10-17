@@ -105,6 +105,26 @@ public interface IManagementService
     /// <paramref name="downloaded"/> 为 null 时使用本地缓存文件重放（供档案加载完成后恢复启动期间被覆盖的临时课表）。
     /// </summary>
     Task<bool> ApplyTempClassPlanAsync(object? downloaded = null);
+
+    /// <summary>
+    /// 列出组织下可选的班级课表，并返回本设备当前选中的班级（null 表示用全局课表）。
+    /// </summary>
+    Task<(List<ClassPlanOption> List, Guid? Current)> GetClassPlanListAsync();
+
+    /// <summary>
+    /// 上报本设备选择的班级课表（classPlanId 为 null 表示改用组织全局课表）。
+    /// </summary>
+    Task SelectClassPlanAsync(Guid? classPlanId);
+}
+
+/// <summary>
+/// 班级课表选项（对应服务端 class_plans 表）。
+/// </summary>
+public class ClassPlanOption
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+    public int Version { get; set; }
 }
 
 /// <summary>
