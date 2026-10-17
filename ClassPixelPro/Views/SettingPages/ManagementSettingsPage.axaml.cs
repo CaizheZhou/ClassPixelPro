@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -57,47 +57,10 @@ public partial class ManagementSettingsPage : SettingsPageBase
     private DispatcherTimer? _logRefreshTimer;
 
     /// <summary>
-    /// 服务端返回的选配池配置列表。仅在 <see cref="LoadPoolConfigsAndSyncUI"/> 成功后赋值。
-    /// </summary>
-    private List<PoolConfigItem>? _poolConfigs;
-
-    /// <summary>
-    /// 是否正在加载选配池列表。用于防止重复加载。
-    /// </summary>
-    private bool _isLoadingPoolConfigs;
-
-    /// <summary>
-    /// 是否正在程序化更新配置模式 UI。用于防止 SelectionChanged 事件递归触发。
-    /// </summary>
-    private bool _isUpdatingConfigMode;
-
-    /// <summary>
     /// 服务端返回的班级课表列表。用于「选择班级」下拉。
     /// </summary>
     private List<ClassPlanOption>? _classPlans;
     private bool _isUpdatingClassPlan;
-
-    /// <summary>
-    /// 配置模式下拉框的选中索引。绑定到 <see cref="ConfigModeComboBox"/>.SelectedIndex。
-    /// getter 从 <see cref="IManagementService.Manifest"/>.ConfigMode 映射，setter 由 SelectionChanged 事件处理。
-    /// </summary>
-    public int ConfigModeSelectedIndex
-    {
-        get
-        {
-            var mode = ManagementService.Manifest?.ConfigMode ?? "global";
-            return mode switch
-            {
-                "pool" => 1,
-                "no_classplan" => 2,
-                _ => 0
-            };
-        }
-        set
-        {
-            // 由 SelectionChanged 事件处理，这里不需要做任何事
-        }
-    }
 
     public ManagementSettingsPage(IManagementService managementService)
     {
@@ -131,8 +94,7 @@ public partial class ManagementSettingsPage : SettingsPageBase
         _logRefreshTimer.Tick += LogRefreshTimer_OnTick;
         _logRefreshTimer.Start();
 
-        // 加载选配池列表和当前配置模式
-        _ = LoadPoolConfigsAndSyncUI();
+        // 加载班级课表列表并同步当前选班
         _ = LoadClassPlansAndSyncUI();
     }
 
@@ -270,6 +232,12 @@ public partial class ManagementSettingsPage : SettingsPageBase
             {
                 _ = concrete.ReloadManagementAsync();
             }
+            // 提示：新课表已自动生效，同时给出强制重拉 + 重启的入口。
+            // 部分配置（组件方案、主题等）需重启进程后才完全生效，故保留该出口。
+            if (ClassPlanChangedPanel != null)
+            {
+                ClassPlanChangedPanel.IsVisible = true;
+            }
         }
         catch (Exception ex)
         {
@@ -281,239 +249,8 @@ public partial class ManagementSettingsPage : SettingsPageBase
     }
 
     /// <summary>
-    /// 加载服务端选配池配置列表，并同步当前配置模式到 UI。
-    /// 在 <see cref="ManagementSettingsPage_OnLoaded"/> 中调用。
-    /// </summary>
-    private async Task LoadPoolConfigsAndSyncUI()
-    {
-        if (!ManagementService.IsManagementEnabled) return;
-
-        var baseUrl = ManagementService.GetManagementBaseUrl();
-        if (string.IsNullOrEmpty(baseUrl)) return;
-
-        var cuid = ManagementService.Persist.ClientUniqueId;
-
-        try
-        {
-            _isLoadingPoolConfigs = true;
-            var url = $"{baseUrl}/api/v1/client/{cuid}/config-pool";
-            _poolConfigs = await WebRequestHelper.Default.GetJson<List<PoolConfigItem>>(new Uri(url));
-
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                // 更新选配池下拉框
-                if (PoolConfigComboBox != null)
-                {
-                    PoolConfigComboBox.Items.Clear();
-                    if (_poolConfigs != null)
-                    {
-                        foreach (var p in _poolConfigs)
-                        {
-                            PoolConfigComboBox.Items.Add($"{p.Name} (v{p.Version})");
-                        }
-                    }
-                }
-
-                // 同步当前模式到 UI
-                SyncConfigModeUI();
-            });
-        }
-        catch (Exception ex)
-        {
-            // 静默失败，不影响页面加载
-            System.Diagnostics.Debug.WriteLine($"加载选配池列表失败: {ex.Message}");
-        }
-        finally
-        {
-            _isLoadingPoolConfigs = false;
-        }
-    }
-
-    /// <summary>
-    /// 将 <see cref="IManagementService.Manifest"/>.ConfigMode 同步到配置模式下拉框与选配池面板的可见性。
-    /// 使用 <see cref="_isUpdatingConfigMode"/> 防止 SelectionChanged 事件递归触发。
-    /// </summary>
-    private void SyncConfigModeUI()
-    {
-        if (_isUpdatingConfigMode) return;
-        _isUpdatingConfigMode = true;
-
-        try
-        {
-            var mode = ManagementService.Manifest?.ConfigMode ?? "global";
-
-            // 同步模式下拉框
-            if (ConfigModeComboBox != null)
-            {
-                ConfigModeComboBox.SelectedIndex = mode switch
-                {
-                    "pool" => 1,
-                    "no_classplan" => 2,
-                    _ => 0
-                };
-            }
-
-            // 显示/隐藏选配池面板
-            if (PoolConfigPanel != null)
-            {
-                PoolConfigPanel.IsVisible = mode == "pool";
-            }
-
-            // 如果是 pool 模式，选中当前选配池配置
-            if (mode == "pool" && PoolConfigComboBox != null && _poolConfigs != null)
-            {
-                var currentPoolName = ManagementService.Manifest?.ConfigSourceName;
-                // 找到当前选中的配置（通过名称匹配）
-                for (int i = 0; i < _poolConfigs.Count; i++)
-                {
-                    if (_poolConfigs[i].Name == currentPoolName)
-                    {
-                        PoolConfigComboBox.SelectedIndex = i;
-                        break;
-                    }
-                }
-            }
-        }
-        finally
-        {
-            _isUpdatingConfigMode = false;
-        }
-    }
-
-    /// <summary>
-    /// 配置模式下拉框选中项变化事件处理。
-    /// 根据选中的模式显示/隐藏选配池面板，并调用 API 同步到服务端。
-    /// </summary>
-    private async void ConfigModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isUpdatingConfigMode) return;
-        if (ConfigModeComboBox == null) return;
-
-        var selectedIndex = ConfigModeComboBox.SelectedIndex;
-        var mode = selectedIndex switch
-        {
-            1 => "pool",
-            2 => "no_classplan",
-            _ => "global"
-        };
-
-        // 显示/隐藏选配池面板
-        if (PoolConfigPanel != null)
-        {
-            PoolConfigPanel.IsVisible = mode == "pool";
-        }
-
-        // 如果选了 pool 模式但没选配置，不立即提交
-        if (mode == "pool" && (PoolConfigComboBox?.SelectedIndex ?? -1) < 0)
-        {
-            if (PoolConfigInfo != null)
-            {
-                PoolConfigInfo.IsVisible = true;
-                PoolConfigInfo.Text = "请在下方选择一个选配配置";
-            }
-            return;
-        }
-
-        if (PoolConfigInfo != null)
-        {
-            PoolConfigInfo.IsVisible = false;
-        }
-
-        // 获取选配池配置 ID（pool 模式）
-        string? poolConfigId = null;
-        if (mode == "pool" && _poolConfigs != null && PoolConfigComboBox != null)
-        {
-            var poolIndex = PoolConfigComboBox.SelectedIndex;
-            if (poolIndex >= 0 && poolIndex < _poolConfigs.Count)
-            {
-                poolConfigId = _poolConfigs[poolIndex].Id;
-            }
-        }
-
-        // 调用 API 同步到服务端
-        await SetConfigModeAsync(mode, poolConfigId);
-    }
-
-    /// <summary>
-    /// 选配池配置下拉框选中项变化事件处理。
-    /// 显示选中的配置信息，并调用 API 同步到服务端。
-    /// </summary>
-    private async void PoolConfigComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isUpdatingConfigMode) return;
-        if (PoolConfigComboBox == null || _poolConfigs == null) return;
-
-        var poolIndex = PoolConfigComboBox.SelectedIndex;
-        if (poolIndex < 0 || poolIndex >= _poolConfigs.Count) return;
-
-        var poolConfigId = _poolConfigs[poolIndex].Id;
-
-        // 显示选中的配置信息
-        if (PoolConfigInfo != null)
-        {
-            PoolConfigInfo.IsVisible = true;
-            var p = _poolConfigs[poolIndex];
-            PoolConfigInfo.Text = $"已选择：{p.Name} (v{p.Version}){(string.IsNullOrEmpty(p.Description) ? "" : $" - {p.Description}")}";
-        }
-
-        // 调用 API 同步到服务端
-        await SetConfigModeAsync("pool", poolConfigId);
-    }
-
-    /// <summary>
-    /// 调用 PUT /api/v1/client/:cuid/config-mode 接口将配置模式同步到服务端。
-    /// 成功后更新本地 <see cref="IManagementService.Manifest"/> 的 ConfigMode 与 ConfigSourceLabel。
-    /// </summary>
-    private async Task SetConfigModeAsync(string mode, string? poolConfigId)
-    {
-        var baseUrl = ManagementService.GetManagementBaseUrl();
-        if (string.IsNullOrEmpty(baseUrl)) return;
-
-        var cuid = ManagementService.Persist.ClientUniqueId;
-
-        try
-        {
-            var url = $"{baseUrl}/api/v1/client/{cuid}/config-mode";
-            var body = new { configMode = mode, poolConfigId = poolConfigId };
-            var json = JsonSerializer.Serialize(body, JsonOptions);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await HttpClient.PutAsync(url, content);
-            if (response.IsSuccessStatusCode)
-            {
-                // 同步成功，触发 manifest 刷新
-                await Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    // 更新本地 Manifest 的 ConfigMode
-                    if (ManagementService.Manifest != null)
-                    {
-                        ManagementService.Manifest.ConfigMode = mode;
-                        ManagementService.Manifest.ConfigSourceLabel = mode switch
-                        {
-                            "pool" => "选配",
-                            "no_classplan" => "非课表",
-                            _ => "全局"
-                        };
-                    }
-
-                    // 显示"配置模式已更改"提示和重新拉取按钮
-                    // 切换模式后本地配置仍是旧的，需重新拉取才能完全生效
-                    if (ConfigModeChangedPanel != null)
-                    {
-                        ConfigModeChangedPanel.IsVisible = true;
-                    }
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"设置配置模式失败: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// "拉取并重启"按钮点击事件。
-    /// 切换配置模式后，部分配置（如组件方案、主题等）需要重启进程才能完全生效。
+    /// "重新拉取并重启"按钮点击事件。
+    /// 部分配置（如组件方案、主题等）需要重启进程才能完全生效。
     /// 此处先重置所有本地版本号为 0 以强制重新拉取所有配置，拉取完成后再重启进程。
     /// </summary>
     private async void ReloadConfigButton_OnClick(object sender, RoutedEventArgs e)
@@ -1599,16 +1336,5 @@ public partial class ManagementSettingsPage : SettingsPageBase
     {
         public bool Bound { get; set; }
         public string? TeacherName { get; set; }
-    }
-
-    /// <summary>
-    /// 服务端选配池配置项。对应 GET /api/v1/client/:cuid/config-pool 返回的数组元素。
-    /// </summary>
-    public class PoolConfigItem
-    {
-        public string Id { get; set; } = "";
-        public string Name { get; set; } = "";
-        public string Description { get; set; } = "";
-        public int Version { get; set; }
     }
 }
