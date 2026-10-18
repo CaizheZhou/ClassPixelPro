@@ -55,14 +55,23 @@ public class TeacherNotificationProvider : NotificationProviderBase
             : OverlaySeconds;
         var ttsRepeat = Math.Clamp(payload.TtsRepeat, 1, 10);
 
-        Logger.LogInformation("收到班主任通知：{}（提示音={}，朗读={}次，最高音量={}，显示={}秒）",
-            payload.Text, payload.SoundEnabled, ttsRepeat, payload.MaxVolume, durationSeconds);
+        Logger.LogInformation("收到班主任通知：{}（提示音={}，朗读={}次，最高音量={}，全屏={}，显示={}秒）",
+            payload.Text, payload.SoundEnabled, ttsRepeat, payload.MaxVolume, payload.Fullscreen, durationSeconds);
 
-        // 1) 屏幕通知（滚动弹幕 + 遮罩）。管线的音效/朗读全部关闭，由下面的播放逻辑接管。
+        // 1) 屏幕通知。全屏模式使用独立窗口（全屏置顶、自适应大字），否则走滚动弹幕。
+        // 管线的音效/朗读全部关闭，由下面的播放逻辑接管。
         // 本方法由集控轮询的后台线程调用，而通知内容会创建 Avalonia 控件（IconSource 等），
         // 必须切回 UI 线程，否则抛 "Call from invalid thread"。
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            if (payload.Fullscreen)
+            {
+                if (!SettingsService.Settings.IsNotificationEnabled) return;
+                IAppHost.TryGetService<Views.FullscreenNotificationWindow>()?
+                    .ShowNotification(payload.Text, TimeSpan.FromSeconds(durationSeconds));
+                return;
+            }
+
             ShowNotification(new NotificationRequest
             {
                 MaskContent = NotificationContent.CreateTwoIconsMask("班主任通知", rightIcon: ""),

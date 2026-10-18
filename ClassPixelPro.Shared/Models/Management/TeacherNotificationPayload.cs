@@ -29,4 +29,10 @@ public class TeacherNotificationPayload
 
     /// <summary>文本朗读重复次数，服务端默认 1。</summary>
     public int TtsRepeat { get; set; } = 1;
+
+    /// <summary>
+    /// 全屏通知：为 true 时不再滚动弹幕，而是在屏幕上全屏置顶展示正文，
+    /// 字号随屏幕与文字长度自适应放大。
+    /// </summary>
+    public bool Fullscreen { get; set; }
 }

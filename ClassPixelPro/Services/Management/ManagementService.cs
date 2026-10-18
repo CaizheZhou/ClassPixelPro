@@ -831,6 +831,7 @@ public class ManagementService : ObservableRecipient, IManagementService
             }
 
             // 保存版本号
+            ApplyTimeOffsetPolicy();
             SaveSettings();
 
             // 注意：ReportCurrentProfileAsync 不在此处调用。
@@ -1641,6 +1642,27 @@ public class ManagementService : ObservableRecipient, IManagementService
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "应用「强制开启远程监控」策略失败");
+        }
+    }
+
+    /// <summary>
+    /// 应用集控策略中的统一时间偏移。策略未配置（null）时保留设备本地设置。
+    /// 在每轮清单拉取结束后调用，保证不会被集控下发的应用设置覆盖。
+    /// </summary>
+    private void ApplyTimeOffsetPolicy()
+    {
+        if (Policy.TimeOffsetSeconds is not { } offset) return;
+        try
+        {
+            var settingsService = IAppHost.TryGetService<SettingsService>();
+            if (settingsService == null) return;
+            if (Math.Abs(settingsService.Settings.TimeOffsetSeconds - offset) < 0.001) return;
+            settingsService.Settings.TimeOffsetSeconds = offset;
+            Logger.LogInformation("已应用集控统一时间偏移：{Offset} 秒", offset);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "应用集控统一时间偏移失败");
         }
     }
 

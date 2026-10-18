@@ -148,6 +148,7 @@ public partial class App
         // services.AddTransient<SplashWindowBase, SplashWindow>();
         // services.AddTransient<FeatureDebugWindow>();
         services.AddSingleton<TopmostEffectWindow>();
+        services.AddSingleton<Views.FullscreenNotificationWindow>();
         services.AddSingleton<AppLogsWindow>();
         services.AddSingleton<SettingsWindowNew>();
         services.AddSingleton<ProfileSettingsWindow>();

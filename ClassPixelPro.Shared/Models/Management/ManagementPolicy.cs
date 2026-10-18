@@ -18,6 +18,7 @@ public class ManagementPolicy : ObservableRecipient
     private bool _allowExitManagement = true;
     private bool _disableEasterEggs = false;
     private bool _forceRemoteMonitor = false;
+    private double? _timeOffsetSeconds;
 
     public bool DisableProfileClassPlanEditing
     {
@@ -81,5 +82,15 @@ public class ManagementPolicy : ObservableRecipient
     {
         get => _forceRemoteMonitor;
         set => SetProperty(ref _forceRemoteMonitor, value);
+    }
+
+    /// <summary>
+    /// 集控统一时间偏移（秒），对应客户端「设置 → 时钟 → 时间偏移」。
+    /// 为 null 表示集控未配置，保留设备本地设置；配置后下发即覆盖本地值。
+    /// </summary>
+    public double? TimeOffsetSeconds
+    {
+        get => _timeOffsetSeconds;
+        set => SetProperty(ref _timeOffsetSeconds, value);
     }
 }
