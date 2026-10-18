@@ -129,6 +129,18 @@ Copy-Item $LauncherExePath $DistPath -Force
 C-Info "复制应用本体 -> $AppFolderPath"
 Copy-Item -Path (Join-Path $AppPublishPath "*") -Destination $AppFolderPath -Recurse -Force
 
+# miniaudio.dll 依赖 VC++ 运行时（VCRUNTIME140.dll）。未安装 VC++ Redistributable 的机器上
+# 会因 0x8007007E（找不到指定的模块）而加载失败，进而导致启动崩溃。随包携带该 DLL。
+$vcRuntime = Join-Path $env:SystemRoot "System32\vcruntime140.dll"
+if (Test-Path $vcRuntime) {
+    Copy-Item $vcRuntime $AppFolderPath -Force
+    Get-ChildItem $AppFolderPath -Recurse -Filter "miniaudio.dll" |
+        ForEach-Object { Copy-Item $vcRuntime $_.DirectoryName -Force }
+    C-Ok "已随包携带 vcruntime140.dll（miniaudio 运行时依赖）"
+} else {
+    C-Warn "未找到 vcruntime140.dll，目标机需自行安装 VC++ 运行时"
+}
+
 Get-ChildItem $DistPath -Filter "*.pdb" -Recurse | Remove-Item -Force
 C-Ok "已清理 .pdb"
 

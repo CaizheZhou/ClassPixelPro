@@ -19,7 +19,25 @@ namespace ClassPixelPro.Services;
 
 public class AudioService(ILogger<AudioService> logger) : IAudioService
 {
-    private readonly AudioEngine _audioEngine = Task.Run((() => new MiniAudioEngine())).Result;
+    /// <summary>
+    /// 音频引擎。初始化失败（例如目标机缺少 miniaudio.dll 依赖的 VC++ 运行时，或没有可用音频设备）时
+    /// 为 null，此时音频服务降级为“不播放声音”，而不是让整个应用启动失败。
+    /// </summary>
+    private readonly AudioEngine? _audioEngine = TryCreateAudioEngine(logger);
+
+    private static AudioEngine? TryCreateAudioEngine(ILogger logger)
+    {
+        try
+        {
+            return Task.Run(() => new MiniAudioEngine()).Result;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "初始化音频引擎失败，本次运行将不播放声音。");
+            return null;
+        }
+    }
+
     private ILogger<AudioService> Logger { get; } = logger;
 
     private RefCounted<AudioPlaybackDevice>? _sharedAudioPlaybackDevice;
@@ -35,7 +53,7 @@ public class AudioService(ILogger<AudioService> logger) : IAudioService
                 throw new InvalidOperationException(
                     "出于线程安全考虑，禁止在非 MTA 线程上调用 AudioEngine。请在 MTA 线程上调用 AudioEngine。详细请见 https://github.com/ClassPixelPro/ClassPixelPro/issues/1333#issuecomment-3505591836");
             }
-            return _audioEngine;
+            return _audioEngine ?? throw new InvalidOperationException("音频引擎初始化失败，无法播放音频。");
         }
     }
 
@@ -71,7 +89,12 @@ public class AudioService(ILogger<AudioService> logger) : IAudioService
     {
         try
         {
-            var deviceInfo = AudioEngine.PlaybackDevices.FirstOrDefault(x => x.IsDefault);
+            if (_audioEngine is not { } audioEngine)
+            {
+                return null;
+            }
+
+            var deviceInfo = audioEngine.PlaybackDevices.FirstOrDefault(x => x.IsDefault);
             if (deviceInfo == default)
             {
                 Logger.LogDebug("找不到可用的音频设备");
@@ -79,7 +102,7 @@ public class AudioService(ILogger<AudioService> logger) : IAudioService
             }
 
             Logger.LogDebug("初始化音频设备 {} (Id={})", deviceInfo.Name, deviceInfo.Id);
-            var device = AudioEngine.InitializePlaybackDevice(deviceInfo, IAudioService.DefaultAudioFormat);
+            var device = audioEngine.InitializePlaybackDevice(deviceInfo, IAudioService.DefaultAudioFormat);
             device.MasterMixer.Volume = 1.0f;
             device.Start();
             return device;
@@ -137,7 +160,7 @@ public class AudioService(ILogger<AudioService> logger) : IAudioService
 
     public void Dispose()
     {
-        AudioEngine.Dispose();
+        _audioEngine?.Dispose();
         GC.SuppressFinalize(this);
     }
 }
