@@ -388,6 +388,18 @@ public partial class App : AppBase, IAppHost
 
         IAppHost.TryGetService<UsageStatisticsService>()?.ReportCrash(e);
 
+        // 集控运行会话：记录崩溃退出，后台「运行记录」可直接看到崩溃原因。
+        try
+        {
+            IAppHost.TryGetService<IManagementService>()
+                ?.ReportSessionEndAsync("crash", "客户端崩溃", e.ToString())
+                .Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception exSession)
+        {
+            Logger?.LogWarning(exSession, "上报崩溃会话失败");
+        }
+
         var plugins = DiagnosticService.GetPluginsByStacktrace(e);
         var disabled = DiagnosticService.DisableCorruptPlugins(plugins);
         var managementService = IAppHost.TryGetService<IManagementService>();
@@ -904,6 +916,8 @@ public partial class App : AppBase, IAppHost
 
             // 匿名使用情况分析：上报到自有服务端（开关关闭时不做任何上报）。
             IAppHost.TryGetService<UsageStatisticsService>()?.ReportStart();
+            // 集控运行会话：记录本次启动，供后台区分正常退出与异常退出。
+            _ = IAppHost.TryGetService<IManagementService>()?.ReportSessionStartAsync();
             AppStarted?.Invoke(this, EventArgs.Empty);
             GetService<IIpcService>().IpcProvider.StartServer();
             GetService<IIpcService>().JsonRoutedProvider.StartServer();
@@ -1175,6 +1189,27 @@ public partial class App : AppBase, IAppHost
             catch (Exception ex)
             {
                 Logger?.LogWarning(ex, "使用情况分析：退出上报失败");
+            }
+            // 集控运行会话：上报正常退出（带退出原因），后台据此区分正常/异常退出。
+            try
+            {
+                IAppHost.TryGetService<IManagementService>()
+                    ?.ReportSessionEndAsync("normal", "用户正常退出应用")
+                    .Wait(TimeSpan.FromSeconds(3));
+            }
+            catch (Exception exSession)
+            {
+                Logger?.LogWarning(exSession, "集控：退出会话上报失败");
+            }
+            // 停止录制计划服务：把正在录制的片段尽量上传完，避免退出后文件残留在本地。
+            try
+            {
+                IAppHost.TryGetService<Services.Management.RecordingService>()
+                    ?.StopAsync().Wait(TimeSpan.FromSeconds(20));
+            }
+            catch (Exception exRecording)
+            {
+                Logger?.LogWarning(exRecording, "停止录制计划服务失败（不阻塞退出）");
             }
             // 停止远程监控服务（内嵌 HTTP 服务器 + cloudflared 子进程），
             // 否则退出后 cloudflared 进程残留、服务端 tunnel 信息不清理。

@@ -101,6 +101,11 @@ public interface IManagementService
     string? GetManagementBaseUrl();
 
     /// <summary>
+    /// 从 ManifestUrlTemplate 解析出组织 ID（UUID）。未加入集控或模板非法时返回 null。
+    /// </summary>
+    string? GetOrganizationId();
+
+    /// <summary>
     /// 应用集控下发的临时调课课表到当前档案的临时层（Overlay）。
     /// <paramref name="downloaded"/> 为 null 时使用本地缓存文件重放（供档案加载完成后恢复启动期间被覆盖的临时课表）。
     /// </summary>
@@ -115,6 +120,20 @@ public interface IManagementService
     /// 上报本设备选择的班级课表（classPlanId 为 null 表示改用组织全局课表）。
     /// </summary>
     Task SelectClassPlanAsync(Guid? classPlanId);
+
+    /// <summary>
+    /// 上报本次运行会话开始。客户端启动完成后调用，服务端据此记录「何时启动」，
+    /// 并为后续的正常/异常退出判定提供基线。
+    /// </summary>
+    Task ReportSessionStartAsync();
+
+    /// <summary>
+    /// 上报本次运行会话结束。
+    /// </summary>
+    /// <param name="kind">normal（正常退出）/ crash（崩溃）/ abnormal（异常）</param>
+    /// <param name="reason">人类可读的退出原因</param>
+    /// <param name="detail">可选详情（如异常堆栈），最长 8000 字符</param>
+    Task ReportSessionEndAsync(string kind, string reason, string? detail = null);
 }
 
 /// <summary>

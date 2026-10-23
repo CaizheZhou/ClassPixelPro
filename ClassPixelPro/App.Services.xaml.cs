@@ -110,6 +110,7 @@ public partial class App
         services.AddSingleton<AudioCaptureService>();
         services.AddSingleton<CloudflaredManager>();
         services.AddSingleton<RemoteMonitorService>();
+        services.AddSingleton<Services.Management.RecordingService>();
         services.AddSingleton<Services.RemoteMonitor.TeacherBindingGate>();
         // ViewModels
         services.AddTransient<ProfileSettingsViewModel>();

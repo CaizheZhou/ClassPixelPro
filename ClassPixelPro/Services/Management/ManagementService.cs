@@ -386,6 +386,12 @@ public class ManagementService : ObservableRecipient, IManagementService
     /// 从 ManifestUrlTemplate 解析出组织 ID。
     /// 模板形如：https://example.com/api/mgmt/{orgId}/serverless/manifest?...
     /// </summary>
+    public string? GetOrganizationId() => GetOrgIdFromManifestTemplate();
+
+    /// <summary>
+    /// 从 ManifestUrlTemplate 解析出组织 ID。
+    /// 模板形如：https://example.com/api/mgmt/{orgId}/serverless/manifest?...
+    /// </summary>
     private string? GetOrgIdFromManifestTemplate()
     {
         var template = Settings.ManifestUrlTemplate;
@@ -432,6 +438,74 @@ public class ManagementService : ObservableRecipient, IManagementService
     {
         public List<ClassPlanOption>? List { get; set; }
         public Guid? CurrentClassPlanId { get; set; }
+    }
+
+    /// <summary>
+    /// 本次运行的会话 ID（服务端 device_sessions.id）。为 null 表示尚未上报或已结束。
+    /// </summary>
+    private long? _deviceSessionId;
+
+    public async Task ReportSessionStartAsync()
+    {
+        try
+        {
+            if (!IsManagementEnabled) return;
+            var baseUrl = GetManagementBaseUrl();
+            if (string.IsNullOrEmpty(baseUrl)) return;
+            var body = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                cuid = Persist.ClientUniqueId.ToString(),
+                appVersion = typeof(ManagementService).Assembly.GetName().Version?.ToString() ?? ""
+            });
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+            var resp = await httpClient.PostAsync($"{baseUrl}/api/teacher/device-session/start", content);
+            if (!resp.IsSuccessStatusCode)
+            {
+                Logger.LogWarning("上报运行会话开始失败：HTTP {Status}", (int)resp.StatusCode);
+                return;
+            }
+            var text = await resp.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("sessionId", out var sid) && sid.TryGetInt64(out var id))
+            {
+                _deviceSessionId = id;
+                Logger.LogInformation("运行会话已开始，会话 ID {SessionId}", id);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "上报运行会话开始失败");
+        }
+    }
+
+    public async Task ReportSessionEndAsync(string kind, string reason, string? detail = null)
+    {
+        var id = _deviceSessionId;
+        if (id == null) return;
+        _deviceSessionId = null;   // 先清空，避免重复上报
+        try
+        {
+            if (!IsManagementEnabled) return;
+            var baseUrl = GetManagementBaseUrl();
+            if (string.IsNullOrEmpty(baseUrl)) return;
+            var body = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                cuid = Persist.ClientUniqueId.ToString(),
+                sessionId = id.Value,
+                kind,
+                reason = reason ?? "",
+                detail = detail ?? ""
+            });
+            using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+            await httpClient.PostAsync($"{baseUrl}/api/teacher/device-session/end", content);
+            Logger.LogInformation("运行会话已结束（{Kind}）：{Reason}", kind, reason);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "上报运行会话结束失败");
+        }
     }
 
     public async Task<bool> SetupManagement()
@@ -529,7 +603,23 @@ public class ManagementService : ObservableRecipient, IManagementService
             }, ct);
         }
 
+        StartRecordingService();
         return await ReloadManagementAsync();
+    }
+
+    /// <summary>
+    /// 启动录制计划执行服务（幂等）。集控未启用时服务自身会跳过拉取。
+    /// </summary>
+    private void StartRecordingService()
+    {
+        try
+        {
+            IAppHost.TryGetService<RecordingService>()?.Start();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "启动录制计划服务失败");
+        }
     }
 
     public async Task<bool> ReloadManagementAsync()
@@ -1796,6 +1886,17 @@ public class ManagementService : ObservableRecipient, IManagementService
         catch (Exception exCancel)
         {
             Logger.LogWarning(exCancel, "取消集控轮询循环失败（不阻塞退出流程）");
+        }
+
+        // 停止录制计划服务，并把正在录制的片段尽量上传完。
+        try
+        {
+            var recording = IAppHost.TryGetService<RecordingService>();
+            if (recording != null) await recording.StopAsync();
+        }
+        catch (Exception exRecording)
+        {
+            Logger.LogWarning(exRecording, "停止录制计划服务失败（不阻塞退出流程）");
         }
 
         // 修复 P1-20：清除临时调课 overlay，避免退出后档案仍残留 overlay 课表。
