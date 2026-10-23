@@ -739,7 +739,7 @@ public partial class ManagementSettingsPage : SettingsPageBase
                 {
                     // 修复 P1-13：使用 ReplaceSettings 统一处理 PropertyChanged 订阅/取消订阅，
                     // 避免旧对象仍能触发 SettingsChanged 而新对象修改不落盘。
-                    settingsService.ReplaceSettings(appSettings);
+                    settingsService.ApplyManagedSettings(appSettings);
                 }
                 ManagementService.Versions.AppSettingsVersion = manifest.AppSettingsSource.Version;
             }

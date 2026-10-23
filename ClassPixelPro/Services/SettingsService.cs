@@ -74,6 +74,24 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
         OnPropertyChanged(nameof(Settings));
     }
 
+    /// <summary>
+    /// 应用集控下发的应用设置（appsettings / 默认设置）。
+    /// <para>
+    /// 服务端快照是某台设备上传的完整 Settings，里面带着设备本地的运行时状态。
+    /// 直接整份替换会让 <see cref="Settings.AppLastStartedTime"/> 永远停留在快照生成的那天，
+    /// 于是每次启动都判定「超过 N 天没启动」，反复弹出「翻新 ClassPixelPro」提示。
+    /// 因此替换前保留本机运行时字段，服务端只覆盖配置类字段。
+    /// </para>
+    /// </summary>
+    public void ApplyManagedSettings(Settings incoming)
+    {
+        incoming.AppLastStartedTime = Settings.AppLastStartedTime;
+        incoming.LeftRefreshingToastCounts = Settings.LeftRefreshingToastCounts;
+        incoming.RefreshingToastIsOnboardingGuide = Settings.RefreshingToastIsOnboardingGuide;
+        incoming.ShowRefreshingToastOnNextStart = Settings.ShowRefreshingToastOnNextStart;
+        ReplaceSettings(incoming);
+    }
+
     private async Task LoadManagementSettingsAsync()
     {
         if (!ManagementService.Manifest.DefaultSettingsSource.IsNewerAndNotNull(ManagementService.Versions
@@ -87,7 +105,7 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
         var url = ManagementService.Manifest.DefaultSettingsSource.Value!;
         var settings = await ManagementService.Connection.GetJsonAsync<Settings>(url);
         // 修复 P1-13：使用 ReplaceSettings 统一处理订阅/取消订阅，避免漏挂 PropertyChanged。
-        ReplaceSettings(settings);
+        ApplyManagedSettings(settings);
         Logger.LogTrace("拉取集控默认设置成功！");
     }
 
@@ -130,7 +148,7 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
                 {
                     var mgmtAppSettings = ConfigureFileHelper.LoadConfig<Settings>(Management.ManagementService.ManagementAppSettingsPath);
                     // 修复 P1-13：使用 ReplaceSettings 统一处理订阅/取消订阅。
-                    ReplaceSettings(mgmtAppSettings);
+                    ApplyManagedSettings(mgmtAppSettings);
                     Logger.LogInformation("已应用集控下发的应用设置（appsettings）");
                 }
                 catch (Exception exAppSettings)

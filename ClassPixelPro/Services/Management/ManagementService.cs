@@ -803,7 +803,7 @@ public class ManagementService : ObservableRecipient, IManagementService
                     var settingsService = IAppHost.GetService<SettingsService>();
                     // 修复 P1-13：使用 ReplaceSettings 统一处理 PropertyChanged 订阅/取消订阅，
                     // 避免旧对象仍能触发 SettingsChanged 而新对象修改不落盘。
-                    settingsService.ReplaceSettings(newAppSettings);
+                    settingsService.ApplyManagedSettings(newAppSettings);
                     Logger.LogTrace("应用集控设置成功");
                 }
                 catch (Exception exAppSettings)
