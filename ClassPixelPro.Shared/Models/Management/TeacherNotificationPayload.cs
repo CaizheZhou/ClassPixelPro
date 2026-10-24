@@ -35,4 +35,10 @@ public class TeacherNotificationPayload
     /// 字号随屏幕与文字长度自适应放大。
     /// </summary>
     public bool Fullscreen { get; set; }
+
+    /// <summary>
+    /// 发送范围。<c>org</c> 表示组织管理员在后台群发，客户端以「组织通知」展示；
+    /// <c>device</c>（默认）表示班主任向单台设备发送，以「班主任通知」展示。
+    /// </summary>
+    public string Scope { get; set; } = "device";
 }

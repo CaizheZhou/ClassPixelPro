@@ -12,7 +12,11 @@ using Microsoft.Extensions.Logging;
 namespace ClassPixelPro.Services.Management;
 
 /// <summary>
-/// 拉取班主任端下发的通知并分发到 <see cref="NotificationProviders.TeacherNotificationProvider"/>。
+/// 拉取组织管理员/班主任下发的通知并分发：
+/// <list type="bullet">
+/// <item>scope=org（管理员群发）→ <see cref="NotificationProviders.ManagementNotificationProvider"/>（集控提醒）；</item>
+/// <item>scope=device（班主任单台发送）→ <see cref="NotificationProviders.TeacherNotificationProvider"/>（班主任通知）。</item>
+/// </list>
 /// 由 <see cref="ManagementService"/> 的集控轮询循环（每 5 秒）调用。
 /// </summary>
 public class TeacherNotificationPullService
@@ -47,24 +51,41 @@ public class TeacherNotificationPullService
 
         // Provider 以 AddHostedService 方式注册，不能用 GetService<T> 直接解析，
         // 从 IHostedService 实例列表中按类型查找（即宿主实际运行的实例）
-        var provider = IAppHost.Host?.Services.GetServices<IHostedService>()
+        var hostedServices = IAppHost.Host?.Services.GetServices<IHostedService>().ToList()
+                             ?? new List<IHostedService>();
+        var teacherProvider = hostedServices
             .OfType<NotificationProviders.TeacherNotificationProvider>().FirstOrDefault();
-        if (provider == null)
-        {
-            Logger.LogWarning("TeacherNotificationProvider 未注册，丢弃 {} 条班主任通知", list.Count);
-            return;
-        }
+        // 组织管理员群发的通知（scope=org）以「组织通知」展示，与 gRPC 集控指令同一个提供方
+        var managementProvider = hostedServices
+            .OfType<NotificationProviders.ManagementNotificationProvider>().FirstOrDefault();
 
-        Logger.LogInformation("收到 {} 条班主任通知", list.Count);
+        Logger.LogInformation("收到 {} 条通知", list.Count);
         foreach (var notification in list)
         {
             try
             {
-                await provider.HandleAsync(notification);
+                if (notification.Scope == "org")
+                {
+                    if (managementProvider == null)
+                    {
+                        Logger.LogWarning("ManagementNotificationProvider 未注册，丢弃组织通知（id={}）", notification.Id);
+                        continue;
+                    }
+                    await managementProvider.HandleAsync(notification);
+                }
+                else
+                {
+                    if (teacherProvider == null)
+                    {
+                        Logger.LogWarning("TeacherNotificationProvider 未注册，丢弃班主任通知（id={}）", notification.Id);
+                        continue;
+                    }
+                    await teacherProvider.HandleAsync(notification);
+                }
             }
             catch (Exception ex)
             {
-                Logger.LogWarning(ex, "处理班主任通知失败（id={}）", notification.Id);
+                Logger.LogWarning(ex, "处理通知失败（id={}）", notification.Id);
             }
         }
     }
