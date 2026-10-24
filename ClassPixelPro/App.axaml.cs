@@ -90,6 +90,12 @@ public partial class App : AppBase, IAppHost
 
     private bool _isStartedCompleted = false;
 
+    /// <summary>
+    /// 退出流程是否已经启动（0/1）。退出可能被多个来源同时触发（托盘菜单、主窗口、集控指令、崩溃处理），
+    /// 用原子标志保证清理只跑一次，否则会重复上传、重复关闭生命周期。
+    /// </summary>
+    private int _isStopping;
+
     internal static bool IsCrashed { get; set; } = false;
 
     internal static bool _isCriticalSafeModeEnabled = false;
@@ -1164,73 +1170,161 @@ public partial class App : AppBase, IAppHost
     /// <summary>
     /// 停止主应用程序并进行必要的清理。
     /// </summary>
+    /// <remarks>
+    /// 本方法只做调度、立即返回：耗时收尾在后台线程执行，最后回到 UI 线程关闭 Avalonia。
+    /// 之前的实现直接在 UI 线程上 <c>.Wait()</c> 各个服务的 <c>StopAsync()</c>，
+    /// 而这些方法内部有 <c>await</c>，续体需要回到已经被卡住的 UI 线程，于是等待必然超时：
+    /// 窗口白屏卡死二十多秒（看起来就是「退出没反应」）、正在录制的片段来不及上传、
+    /// 服务端 tunnel 信息也来不及清理；重启时新进程又在等旧进程释放互斥体，于是表现为重启失败。
+    /// </remarks>
     public override void Stop()
     {
-        if (CurrentLifetime == ClassPixelPro.Core.Enums.ApplicationLifetime.Stopping)
+        if (Interlocked.Exchange(ref _isStopping, 1) != 0)
         {
             return;
         }
-        _ = Dispatcher.UIThread.InvokeAsync(() =>
+        // 兜底：任何环节卡死都不能让用户等不到退出（正常 1-2 秒就走完，走到这里说明有异常，
+        // 例如 UI 线程被别的回调占住导致 Avalonia 的关闭请求排不上队）。
+        _ = Task.Run(async () =>
         {
-            var partial = CurrentLifetime < Core.Enums.ApplicationLifetime.StartingOnline;
-            CurrentLifetime = ClassPixelPro.Core.Enums.ApplicationLifetime.Stopping;
-            Logger?.LogInformation("正在停止应用");
+            await Task.Delay(TimeSpan.FromSeconds(60));
+            Logger?.LogWarning("退出流程超过 60 秒仍未完成，强制结束进程");
+            Environment.Exit(0);
+        });
+        _ = Dispatcher.UIThread.InvokeAsync(StopOnUiThreadAsync);
+    }
+
+    private async Task StopOnUiThreadAsync()
+    {
+        var partial = CurrentLifetime < Core.Enums.ApplicationLifetime.StartingOnline;
+        CurrentLifetime = ClassPixelPro.Core.Enums.ApplicationLifetime.Stopping;
+        Logger?.LogInformation("正在停止应用");
+
+        // 以下几步必须在 UI 线程执行（托盘图标、自动化「应用退出时」触发器、计时器等），
+        // 但它们都是同步且快速的；任何一步抛异常都不能中断退出流程。
+        try
+        {
             if (IAppHost.TryGetService<IManagementService>() is { IsManagementEnabled: true, Connection: ManagementServerConnection connection })
             {
                 connection.LogAuditEvent(AuditEvents.AppExited, new Empty());
             }
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, "集控：退出审计上报失败");
+        }
+        try
+        {
             AppStopping?.Invoke(this, EventArgs.Empty);
-            // 上报会话结束（带运行时长与退出原因），并把本地队列尽量发完。
-            // 缺了这一步会话时长完全没有数据，崩溃事件也几乎必然随进程一起丢掉。
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, "应用停止事件处理失败");
+        }
+        // 上报会话结束（带运行时长与退出原因），并把本地队列尽量发完。
+        // 缺了这一步会话时长完全没有数据，崩溃事件也几乎必然随进程一起丢掉。
+        try
+        {
+            IAppHost.TryGetService<Services.UsageStatisticsService>()?.ReportExit();
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, "使用情况分析：退出上报失败");
+        }
+        try
+        {
+            IAppHost.Host?.Services.GetService<ILessonsService>()?.StopMainTimer();
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, "停止课表计时器失败");
+        }
+
+        try
+        {
+            await Task.Run(() => StopServicesAsync(partial));
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, "退出清理失败，仍然继续退出");
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() => ShutdownUi(partial));
+    }
+
+    /// <summary>
+    /// 在后台线程停止各服务。每个步骤单独限时，任何一步失败都不影响后续步骤和最终退出。
+    /// </summary>
+    private async Task StopServicesAsync(bool partial)
+    {
+        // 集控运行会话：上报正常退出（带退出原因），后台据此区分正常/异常退出。
+        await RunStepAsync("集控：退出会话上报", () =>
+            IAppHost.TryGetService<IManagementService>()?.ReportSessionEndAsync("normal", "用户正常退出应用"),
+            TimeSpan.FromSeconds(3));
+
+        // 停止录制计划服务：把正在录制的片段尽量上传完，避免退出后文件残留在本地。
+        await RunStepAsync("停止录制计划服务", () =>
+            IAppHost.TryGetService<Services.Management.RecordingService>()?.StopAsync(),
+            TimeSpan.FromSeconds(20));
+
+        // 停止远程监控服务（内嵌 HTTP 服务器 + cloudflared 子进程），
+        // 否则退出后 cloudflared 进程残留、服务端 tunnel 信息不清理。
+        await RunStepAsync("停止远程监控服务", () =>
+            IAppHost.Host?.Services.GetService<Services.RemoteMonitor.RemoteMonitorService>()?.StopAsync(),
+            TimeSpan.FromSeconds(8));
+
+        if (!partial)
+        {
+            await RunStepAsync("停止应用主机", () => IAppHost.Host?.StopAsync(TimeSpan.FromSeconds(5)),
+                TimeSpan.FromSeconds(8));
+        }
+        Logger?.LogInformation("退出清理完成，准备关闭应用");
+    }
+
+    /// <summary>
+    /// 执行一个可选的异步收尾步骤，超时或异常只记录日志。
+    /// </summary>
+    private async Task RunStepAsync(string name, Func<Task?> step, TimeSpan timeout)
+    {
+        try
+        {
+            var task = step();
+            if (task is null) return;
+            if (await Task.WhenAny(task, Task.Delay(timeout)) != task)
+            {
+                Logger?.LogWarning("退出清理超时（{Step}，{Seconds} 秒），跳过", name, timeout.TotalSeconds);
+                return;
+            }
+            await task;
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, "退出清理失败（{Step}）", name);
+        }
+    }
+
+    /// <summary>
+    /// 回到 UI 线程做最后的保存与关闭。这里必须保证走到 <see cref="DesktopLifetime"/> 的 Shutdown，
+    /// 否则进程会一直挂在托盘里退出不掉。
+    /// </summary>
+    private void ShutdownUi(bool partial)
+    {
+        if (!partial)
+        {
             try
             {
-                IAppHost.TryGetService<Services.UsageStatisticsService>()?.ReportExit();
-            }
-            catch (Exception ex)
-            {
-                Logger?.LogWarning(ex, "使用情况分析：退出上报失败");
-            }
-            // 集控运行会话：上报正常退出（带退出原因），后台据此区分正常/异常退出。
-            try
-            {
-                IAppHost.TryGetService<IManagementService>()
-                    ?.ReportSessionEndAsync("normal", "用户正常退出应用")
-                    .Wait(TimeSpan.FromSeconds(3));
-            }
-            catch (Exception exSession)
-            {
-                Logger?.LogWarning(exSession, "集控：退出会话上报失败");
-            }
-            // 停止录制计划服务：把正在录制的片段尽量上传完，避免退出后文件残留在本地。
-            try
-            {
-                IAppHost.TryGetService<Services.Management.RecordingService>()
-                    ?.StopAsync().Wait(TimeSpan.FromSeconds(20));
-            }
-            catch (Exception exRecording)
-            {
-                Logger?.LogWarning(exRecording, "停止录制计划服务失败（不阻塞退出）");
-            }
-            // 停止远程监控服务（内嵌 HTTP 服务器 + cloudflared 子进程），
-            // 否则退出后 cloudflared 进程残留、服务端 tunnel 信息不清理。
-            try
-            {
-                IAppHost.Host?.Services.GetService<Services.RemoteMonitor.RemoteMonitorService>()
-                    ?.StopAsync().Wait(TimeSpan.FromSeconds(5));
-            }
-            catch (Exception exRemoteMonitor)
-            {
-                Logger?.LogWarning(exRemoteMonitor, "停止远程监控服务失败（不阻塞退出）");
-            }
-            if (!partial)
-            {
-                IAppHost.Host?.Services.GetService<ILessonsService>()?.StopMainTimer();
-                IAppHost.Host?.StopAsync(TimeSpan.FromSeconds(5));
                 IAppHost.Host?.Services.GetService<SettingsService>()?.SaveSettings("停止当前应用程序。");
                 IAppHost.Host?.Services.GetService<IAutomationService>()?.SaveConfig("停止当前应用程序。");
                 IAppHost.Host?.Services.GetService<IProfileService>()?.SaveProfile();
                 IAppHost.Host?.Services.GetService<IComponentsService>()?.SaveConfig();
             }
+            catch (Exception ex)
+            {
+                Logger?.LogWarning(ex, "退出前保存配置失败");
+            }
+        }
+        try
+        {
             if (PlatformServices.WindowPlatformService is IDisposable d)
             {
                 d.Dispose();
@@ -1239,16 +1333,20 @@ public partial class App : AppBase, IAppHost
             {
                 toastService.Dispose();
             }
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogWarning(ex, "释放平台服务失败");
+        }
+        try
+        {
             DesktopLifetime?.Shutdown();
-            try
-            {
-                //ReleaseLock();
-            }
-            catch (Exception e)
-            {
-                Logger?.LogError(e, "无法释放 Mutex。");
-            }
-        });
+        }
+        catch (Exception ex)
+        {
+            Logger?.LogError(ex, "关闭 Avalonia 生命周期失败，强制结束进程");
+            Environment.Exit(0);
+        }
     }
 
     // 2.0 不再发布资源裁剪版本，此方法恒返回 false
