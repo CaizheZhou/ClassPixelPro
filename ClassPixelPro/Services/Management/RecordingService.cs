@@ -21,24 +21,27 @@ namespace ClassPixelPro.Services.Management;
 /// <para>
 /// 集控后台下发录制计划后，本服务每 60 秒拉取一次，并按设备本地时间执行：
 /// <list type="bullet">
-/// <item>video 模式：在计划时间段内以 1fps 录制屏幕，结束后直传又拍云。</item>
-/// <item>photo 模式：在指定时间点或按固定间隔截屏，逐张直传又拍云。</item>
+/// <item>video 模式：在计划时间段内以 5fps 采集<b>摄像头</b>画面录成 MP4，结束后直传又拍云。</item>
+/// <item>photo 模式：在指定时间点或按固定间隔抓拍<b>摄像头</b>画面，逐张直传又拍云。</item>
 /// </list>
+/// 采集源是教室电脑的摄像头（与远程监控共用同一个 <see cref="CameraCaptureService"/>，
+/// 因此跟随监控设置里选中的设备），不是桌面画面。
 /// 上传使用服务端签发的短期直传签名，操作员密码不会下发到教室电脑。
 /// </para>
 /// </summary>
 public sealed class RecordingService : IDisposable
 {
     private const int PlanPollSeconds = 60;
-    private const int TickSeconds = 1;
-    private const double VideoFps = 1.0;
+    // 摄像头录像按 5fps 抽帧：Tick 每秒只跑一次，靠 TickMs 细化才能凑够帧数。
+    private const int TickMs = 200;
+    private const double VideoFps = 5.0;
     private const int VideoMaxWidth = 1280;
     private const int JpegQuality = 70;
     private const int MaxVideoSeconds = 3 * 60 * 60;
     private const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
 
     private readonly ILogger<RecordingService> _logger;
-    private readonly ScreenCaptureService _screenCapture;
+    private readonly CameraCaptureService _cameraCapture;
 
     private readonly object _lock = new();
     private readonly Dictionary<string, PlanState> _states = new();
@@ -47,10 +50,10 @@ public sealed class RecordingService : IDisposable
     private Task? _loop;
     private DateTime _lastPoll = DateTime.MinValue;
 
-    public RecordingService(ILogger<RecordingService> logger, ScreenCaptureService screenCapture)
+    public RecordingService(ILogger<RecordingService> logger, CameraCaptureService cameraCapture)
     {
         _logger = logger;
-        _screenCapture = screenCapture;
+        _cameraCapture = cameraCapture;
     }
 
     public bool IsRunning => _loop is { IsCompleted: false };
@@ -60,6 +63,15 @@ public sealed class RecordingService : IDisposable
         lock (_lock)
         {
             if (IsRunning) return;
+            // 跟随远程监控里选中的摄像头：该设置是持久化的，但平时只有打开监控设置页才同步给
+            // CameraCaptureService；录制计划是无人值守执行的，这里启动时主动同步一次，
+            // 否则多摄像头机器上会录到默认的 0 号（比如讲台上的文件展台）。
+            var savedCamera = IAppHost.TryGetService<SettingsService>()?.Settings.RemoteMonitorSelectedCameraIndex ?? 0;
+            if (savedCamera != _cameraCapture.CurrentCameraIndex)
+            {
+                _cameraCapture.SelectCamera(savedCamera.ToString());
+            }
+
             _cts?.Dispose();
             _cts = new CancellationTokenSource();
             var ct = _cts.Token;
@@ -115,7 +127,7 @@ public sealed class RecordingService : IDisposable
                 _logger.LogWarning(ex, "录制计划执行失败");
             }
 
-            try { await Task.Delay(TimeSpan.FromSeconds(TickSeconds), ct); }
+            try { await Task.Delay(TickMs, ct); }
             catch (OperationCanceledException) { break; }
         }
     }
@@ -146,6 +158,7 @@ public sealed class RecordingService : IDisposable
             catch (Exception ex) { _logger.LogWarning(ex, "跳过无法解析的录制计划"); }
         }
         _plans = plans;
+        _logger.LogInformation("已拉取 {Count} 个录制计划", plans.Count);
 
         // 计划被删除/停用后，正在录制的窗口必须收尾，否则会一直录到进程退出。
         var validIds = plans.Select(p => p.Id).ToHashSet();
@@ -175,6 +188,8 @@ public sealed class RecordingService : IDisposable
 
             if (plan.Mode == "video")
             {
+                // 录像必须有时间窗，缺少窗口的脏数据直接跳过，避免全天录制。
+                if (plan.Start is null || plan.End is null) continue;
                 if (!state.IsRecording) StartVideo(plan, state, now);
                 if (state.IsRecording) WriteVideoFrame(plan, state, now);
             }
@@ -196,6 +211,7 @@ public sealed class RecordingService : IDisposable
 
                 if (shouldShoot)
                 {
+                    _logger.LogInformation("触发定时拍照（{Plan}）", plan.Name);
                     state.LastPhotoAt = now;
                     _ = CapturePhotoAsync(plan, now);
                 }
@@ -218,9 +234,9 @@ public sealed class RecordingService : IDisposable
 
     private void StartVideo(RecordingPlan plan, PlanState state, DateTime now)
     {
-        if (!_screenCapture.IsSupported)
+        if (!_cameraCapture.IsSupported)
         {
-            _logger.LogWarning("当前平台不支持屏幕采集，跳过录制计划 {Plan}", plan.Name);
+            _logger.LogWarning("当前平台不支持摄像头采集，跳过录制计划 {Plan}", plan.Name);
             return;
         }
         try
@@ -256,7 +272,9 @@ public sealed class RecordingService : IDisposable
                 return;
             }
 
-            var jpeg = _screenCapture.CaptureScreenAsJpeg(JpegQuality);
+            var jpeg = _cameraCapture.CaptureFrameAsJpeg(JpegQuality);
+            // 摄像头没出帧（被占用 / 未接 / 驱动异常）时直接跳过这一拍，不写空帧。
+            if (jpeg.Length == 0) return;
             using var decoded = Cv2.ImDecode(jpeg, ImreadModes.Color);
             if (decoded.Empty()) return;
 
@@ -310,6 +328,7 @@ public sealed class RecordingService : IDisposable
         state.Writer = null;
         state.TempPath = null;
         state.StartedAt = null;
+        ReleaseCameraIfIdle();
 
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
         var endedAt = DateTime.Now;
@@ -319,21 +338,40 @@ public sealed class RecordingService : IDisposable
 
     private async Task CapturePhotoAsync(RecordingPlan plan, DateTime now)
     {
-        if (!_screenCapture.IsSupported) return;
+        if (!_cameraCapture.IsSupported) return;
         string? path = null;
         try
         {
+            var jpeg = _cameraCapture.CaptureFrameAsJpeg(85);
+            if (jpeg.Length == 0)
+            {
+                _logger.LogWarning("定时拍照未取到摄像头画面（{Plan}）", plan.Name);
+                return;
+            }
             var dir = GetRecordingDir();
             Directory.CreateDirectory(dir);
             path = Path.Combine(dir, $"{Sanitize(plan.Name)}_{now:yyyyMMdd_HHmmss}.jpg");
-            await File.WriteAllBytesAsync(path, _screenCapture.CaptureScreenAsJpeg(85));
+            await File.WriteAllBytesAsync(path, jpeg);
             await UploadAsync(plan.Id, "photo", path, now, now, TimeSpan.Zero);
+            // 按间隔拍照（可能每几秒一张）保留设备占用，避免每次重新打开摄像头；
+            // 只在按时间点拍照时释放，让指示灯别一直亮着。
+            if (plan.PhotoIntervalSeconds == 0) ReleaseCameraIfIdle();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "拍照失败");
             if (path != null) TryDelete(path);
         }
+    }
+
+    /// <summary>
+    /// 录完 / 拍完后释放摄像头，避免摄像头指示灯一直亮着。
+    /// 远程监控有人正在看时不动设备，否则会把画面抢断。
+    /// </summary>
+    private void ReleaseCameraIfIdle()
+    {
+        if (IAppHost.TryGetService<RemoteMonitorService>() is { HasActiveViewer: true }) return;
+        _cameraCapture.ReleaseCamera();
     }
 
     private async Task UploadAsync(string planId, string kind, string path, DateTime startedAt, DateTime endedAt, TimeSpan duration)
@@ -499,18 +537,31 @@ public sealed class RecordingService : IDisposable
         public string Id { get; init; } = "";
         public string Name { get; init; } = "";
         public string Mode { get; init; } = "video";
+        public string ScheduleType { get; init; } = "weekly";
+        public DateTime? RunDate { get; init; }
         public int[] Weekdays { get; init; } = [];
-        public TimeSpan Start { get; init; }
-        public TimeSpan End { get; init; }
+        public TimeSpan? Start { get; init; }
+        public TimeSpan? End { get; init; }
         public HashSet<string> PhotoTimes { get; init; } = [];
         public int PhotoIntervalSeconds { get; init; }
 
         public bool IsActive(DateTime now)
         {
-            var dow = now.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)now.DayOfWeek;
-            if (!Weekdays.Contains(dow)) return false;
+            // 调度方式：weekly 按星期重复；once 只在指定日期执行。
+            if (ScheduleType == "once")
+            {
+                if (RunDate is null || RunDate.Value.Date != now.Date) return false;
+            }
+            else
+            {
+                var dow = now.DayOfWeek == DayOfWeek.Sunday ? 7 : (int)now.DayOfWeek;
+                if (!Weekdays.Contains(dow)) return false;
+            }
+
+            // 没有时间窗（定时拍照只填时间点）表示当天全天有效。
+            if (Start is null || End is null) return true;
             var t = now.TimeOfDay;
-            return t >= Start && t < End;
+            return t >= Start.Value && t < End.Value;
         }
 
         public static RecordingPlan FromJson(JsonElement e)
@@ -528,18 +579,27 @@ public sealed class RecordingService : IDisposable
                 Id = e.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "",
                 Name = e.TryGetProperty("name", out var n) ? n.GetString() ?? "录制计划" : "录制计划",
                 Mode = e.TryGetProperty("mode", out var m) ? m.GetString() ?? "video" : "video",
-                Start = ParseTime(e, "start_time", "08:00"),
-                End = ParseTime(e, "end_time", "08:45"),
+                ScheduleType = e.TryGetProperty("schedule_type", out var st) ? st.GetString() ?? "weekly" : "weekly",
+                RunDate = ParseDate(e, "run_date"),
+                Start = ParseTimeOrNull(e, "start_time"),
+                End = ParseTimeOrNull(e, "end_time"),
                 PhotoIntervalSeconds = e.TryGetProperty("photo_interval_seconds", out var iv) && iv.TryGetInt32(out var v) ? v : 0,
                 Weekdays = days.ToArray(),
                 PhotoTimes = ParsePhotoTimes(e)
             };
         }
 
-        private static TimeSpan ParseTime(JsonElement e, string prop, string fallback)
+        private static DateTime? ParseDate(JsonElement e, string prop)
         {
             var s = e.TryGetProperty(prop, out var v) ? v.GetString() : null;
-            return TimeSpan.TryParse(s ?? fallback, out var t) ? t : TimeSpan.Parse(fallback);
+            return DateTime.TryParse(s, out var d) ? d.Date : null;
+        }
+
+        private static TimeSpan? ParseTimeOrNull(JsonElement e, string prop)
+        {
+            var s = e.TryGetProperty(prop, out var v) ? v.GetString() : null;
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            return TimeSpan.TryParse(s, out var t) ? t : null;
         }
 
         private static HashSet<string> ParsePhotoTimes(JsonElement e)
@@ -549,6 +609,9 @@ public sealed class RecordingService : IDisposable
             var raw = v.GetString() ?? "";
             foreach (var part in raw.Split([',', '，', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
             {
+                // TimeSpan 的自定义格式只有小写 hh（表示 00-23 小时，没有上下午概念）；
+                // 大写 HH 不是合法的 TimeSpan 格式符，ToString 会直接抛 FormatException，
+                // 导致所有含拍照时间点的计划在解析阶段被整条丢弃——这是「录制计划完全不可用」的根因。
                 if (TimeSpan.TryParse(part.Trim(), out var t)) set.Add(t.ToString(@"hh\:mm"));
             }
             return set;
