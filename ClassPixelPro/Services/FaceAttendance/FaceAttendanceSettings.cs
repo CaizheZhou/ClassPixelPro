@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace ClassPixelPro.Services.FaceAttendance;
@@ -151,5 +152,104 @@ public sealed class FaceAttendanceSettings
 
         dict[key] = value;
         S.FaceAttendancePerModelThresholds = dict;
+    }
+
+    /// <summary>抓拍画面宽度。</summary>
+    public int CaptureWidth
+    {
+        get => S.FaceAttendanceCaptureWidth;
+        set => S.FaceAttendanceCaptureWidth = value;
+    }
+
+    /// <summary>抓拍画面高度。</summary>
+    public int CaptureHeight
+    {
+        get => S.FaceAttendanceCaptureHeight;
+        set => S.FaceAttendanceCaptureHeight = value;
+    }
+
+    /// <summary>抓拍前预热秒数。</summary>
+    public int WarmUpSeconds
+    {
+        get => S.FaceAttendanceWarmUpSeconds;
+        set => S.FaceAttendanceWarmUpSeconds = value;
+    }
+
+    /// <summary>单次考勤的硬超时秒数。</summary>
+    public int MaxDurationSeconds
+    {
+        get => S.FaceAttendanceMaxDurationSeconds;
+        set => S.FaceAttendanceMaxDurationSeconds = value;
+    }
+
+    /// <summary>迟到判定方式。</summary>
+    public LateJudgeMode JudgeMode
+    {
+        get => (LateJudgeMode)S.FaceAttendanceJudgeMode;
+        set => S.FaceAttendanceJudgeMode = (int)value;
+    }
+
+    /// <summary>补执行窗口（分钟）。</summary>
+    public int GraceMinutes
+    {
+        get => S.FaceAttendanceGraceMinutes;
+        set => S.FaceAttendanceGraceMinutes = value;
+    }
+
+    /// <summary>
+    /// 一周抓拍时间计划。
+    /// <para>
+    /// 底层存 JSON（<see cref="Models.Settings.FaceAttendanceWeekScheduleJson"/>），
+    /// 集控下发的计划可以直接替换这个字符串，不需要逐天对字段。
+    /// </para>
+    /// </summary>
+    public WeekSchedule WeekSchedule
+    {
+        get
+        {
+            var json = S.FaceAttendanceWeekScheduleJson;
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                try
+                {
+                    var loaded = System.Text.Json.JsonSerializer.Deserialize<WeekSchedule>(json,
+                        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (loaded?.Days is { Count: > 0 })
+                    {
+                        NormalizeDays(loaded);
+                        return loaded;
+                    }
+                }
+                catch
+                {
+                    // 解析失败就退回到默认计划，别让一处脏数据让人脸考勤整个起不来
+                }
+            }
+
+            return WeekSchedule.CreateDefault();
+        }
+        set
+        {
+            NormalizeDays(value);
+            S.FaceAttendanceWeekScheduleJson = System.Text.Json.JsonSerializer.Serialize(value);
+        }
+    }
+
+    /// <summary>把「七天必须齐全、且按周一到周日排序」补上，缺的日子按关闭处理。</summary>
+    private static void NormalizeDays(WeekSchedule schedule)
+    {
+        schedule.Days ??= new List<DaySchedule>();
+        for (var i = 0; i < 7; i++)
+        {
+            var day = (DayOfWeek)i;
+            if (schedule.Days.All(x => x.Day != day))
+            {
+                schedule.Days.Add(new DaySchedule { Day = day });
+            }
+        }
+
+        schedule.Days = schedule.Days
+            .OrderBy(x => ((int)x.Day + 6) % 7) // 周一在最前
+            .ToList();
     }
 }

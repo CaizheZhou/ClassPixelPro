@@ -41,6 +41,12 @@ public sealed class CameraCaptureService : IDisposable
     private const int MaxConsecutiveFailures = 10;
     private bool _disposed;
 
+    // 摄像头是独占设备：远程监控、录制计划、人脸考勤三方共用这一路 VideoCapture。
+    // 持有者计数为 0 时才真正释放设备；先到者用完后计数归零，后到者能立刻接手，
+    // 不会出现「监控停了但录制还在跑，摄像头却被关掉」。
+    private readonly Dictionary<CameraUser, int> _holders = new();
+    private DateTime _lastHolderChangeAt = DateTime.MinValue;
+
     // GetCameras() 结果缓存：逐个打开 0-9 号摄像头探测耗时数秒，
     // /status 端点每次调用都探测会导致前端频繁刷新时累计卡顿。缓存 60 秒。
     private static List<CameraInfo>? _camerasCache;
@@ -62,6 +68,104 @@ public sealed class CameraCaptureService : IDisposable
     /// 当前选中的摄像头索引。
     /// </summary>
     public int CurrentCameraIndex => _currentIndex;
+
+    /// <summary>
+    /// 当前谁正在占用摄像头。没有任何人占用时为空集合。
+    /// </summary>
+    public IReadOnlyCollection<CameraUser> CurrentHolders
+    {
+        get
+        {
+            lock (_captureLock)
+            {
+                return _holders.Where(x => x.Value > 0).Select(x => x.Key).ToList();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 申请占用摄像头。已经被别人占用时返回 <c>false</c>，调用方应当跳过本轮，
+    /// 而不是把别人的采集顶掉。
+    /// <para>
+    /// 同一使用者重复申请是幂等的（引用计数 +1），配合 <see cref="ReleaseCamera"/> 成对使用。
+    /// </para>
+    /// </summary>
+    /// <param name="user">使用者。</param>
+    public bool TryAcquireCamera(CameraUser user)
+    {
+        lock (_captureLock)
+        {
+            if (_disposed) return false;
+
+            var existing = _holders.Where(x => x.Value > 0 && x.Key != user).ToList();
+            if (existing.Count > 0)
+            {
+                _logger.LogInformation("摄像头正被 {Users} 占用，{User} 本次跳过",
+                    string.Join("/", existing.Select(x => Describe(x.Key))), Describe(user));
+                return false;
+            }
+
+            _holders[user] = _holders.TryGetValue(user, out var n) ? n + 1 : 1;
+            _lastHolderChangeAt = DateTime.Now;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 释放一次占用。计数归零且没有别的使用者时才真正关闭设备。
+    /// </summary>
+    /// <param name="user">使用者。</param>
+    public void ReleaseCamera(CameraUser user)
+    {
+        lock (_captureLock)
+        {
+            if (!_holders.TryGetValue(user, out var n) || n <= 0) return;
+
+            _holders[user] = n - 1;
+            _lastHolderChangeAt = DateTime.Now;
+            if (_holders.Any(x => x.Value > 0)) return;
+
+            // 没人用了才关设备，避免「监控查看者断开但录制还在跑」把摄像头关掉。
+            ReleaseCameraLocked();
+        }
+    }
+
+    /// <summary>
+    /// 释放当前摄像头（停止占用设备），不区分使用者。
+    /// <para>
+    /// 保留这个无参重载是为了兼容既有的手动释放调用；新代码应使用
+    /// <see cref="ReleaseCamera(CameraUser)"/>，否则计数会与实际情况脱节。
+    /// </para>
+    /// </summary>
+    public void ReleaseCamera()
+    {
+        lock (_captureLock)
+        {
+            foreach (var key in _holders.Keys.ToList())
+            {
+                _holders[key] = 0;
+            }
+
+            _lastHolderChangeAt = DateTime.Now;
+            ReleaseCameraLocked();
+        }
+    }
+
+    private void ReleaseCameraLocked()
+    {
+        _capture?.Release();
+        _capture?.Dispose();
+        _capture = null;
+        _consecutiveFailures = 0;
+    }
+
+    private static string Describe(CameraUser user) => user switch
+    {
+        CameraUser.Monitor => "远程监控",
+        CameraUser.Recording => "录制计划",
+        CameraUser.Attendance => "人脸考勤",
+        _ => user.ToString(),
+    };
 
     /// <summary>
     /// 枚举可用摄像头列表。
@@ -267,31 +371,63 @@ public sealed class CameraCaptureService : IDisposable
     }
 
     /// <summary>
-    /// 释放当前摄像头（停止占用设备）。
-    /// 与 <see cref="Dispose"/> 不同，此方法不标记对象为已释放，
-    /// 后续仍可重新打开摄像头。用于 WebSocket 断开时主动释放设备占用。
+    /// 读取一帧原始画面（BGR）。人脸识别直接用 <see cref="Mat"/>，不走 JPEG 编解码，
+    /// 省一次压缩/解压，也避免画质损失影响识别率。
     /// </summary>
-    public void ReleaseCamera()
+    /// <returns>调用方负责释放；失败返回 null。</returns>
+    public Mat? GrabFrame()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException("摄像头采集仅在 Windows 上可用");
+        }
+
         lock (_captureLock)
         {
-            _capture?.Release();
-            _capture?.Dispose();
-            _capture = null;
-            _consecutiveFailures = 0;
+            if (_capture == null || !_capture.IsOpened())
+            {
+                OpenCamera();
+                if (_capture == null || !_capture.IsOpened())
+                {
+                    return null;
+                }
+            }
+
+            for (var retry = 0; retry < 5; retry++)
+            {
+                using var frame = new Mat();
+                if (_capture.Read(frame) && !frame.Empty())
+                {
+                    _consecutiveFailures = 0;
+                    return frame.Clone();
+                }
+
+                Thread.Sleep(30);
+            }
+
+            return null;
         }
-        _logger.LogInformation("摄像头已释放");
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        lock (_captureLock)
-        {
-            _capture?.Release();
-            _capture?.Dispose();
-            _capture = null;
-        }
+        ReleaseCamera();
     }
+}
+
+/// <summary>
+/// 摄像头的使用者标识。用来在日志里说清「谁正占着摄像头」，也是独占仲裁的键。
+/// </summary>
+public enum CameraUser
+{
+    /// <summary>远程监控。</summary>
+    Monitor,
+
+    /// <summary>录制计划。</summary>
+    Recording,
+
+    /// <summary>人脸考勤。</summary>
+    Attendance,
 }

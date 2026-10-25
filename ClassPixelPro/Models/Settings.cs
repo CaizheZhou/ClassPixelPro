@@ -216,6 +216,29 @@ public class Settings : ObservableRecipient, ILessonControlSettings, INotificati
     private bool _isMonitorIndicatorEnabled = false;
     private int _remoteMonitorSelectedCameraIndex = 0;
 
+    // ---- 人脸考勤 ----
+    private bool _isFaceAttendanceEnabled = false;
+    private int _faceAttendanceCameraIndex = 0;
+    private int _faceAttendanceCaptureWidth = 1280;
+    private int _faceAttendanceCaptureHeight = 720;
+    private int _faceAttendanceCaptureCount = 4;
+    private int _faceAttendanceCaptureIntervalMs = 400;
+    private int _faceAttendanceWarmUpSeconds = 1;
+    private int _faceAttendanceMaxDurationSeconds = 120;
+    private int _faceAttendanceMinHits = 2;
+    private int _faceAttendanceMinFaceWidth = 60;
+    private double _faceAttendanceThreshold = 0.363;
+    private int _faceAttendanceRetentionDays = 14;
+    private bool _faceAttendanceSaveSnapshots = true;
+    private bool _faceAttendanceAllowModelDownload = false;
+    private int _faceAttendanceJudgeMode = 0;
+    private int _faceAttendanceGraceMinutes = 2;
+    private string _faceAttendanceWeekScheduleJson = "";
+    private string _faceAttendanceRecognizerModelId = "auto";
+    private string _faceAttendanceDetectorModelPath = "";
+    private string _faceAttendanceRecognizerModelPath = "";
+    private Dictionary<string, double> _faceAttendancePerModelThresholds = new();
+
     private string _selectedUpdateMirrorV2 = "main";
     private string _selectedUpdateChannelV2 = "stable";
     private GptSoVitsSpeechSettings _gptSoVitsSpeechSettings = new();
@@ -2696,6 +2719,308 @@ public class Settings : ObservableRecipient, ILessonControlSettings, INotificati
         {
             if (value == _remoteMonitorSelectedCameraIndex) return;
             _remoteMonitorSelectedCameraIndex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 是否启用人脸考勤。启用后按「时间计划」自动抓拍识别人脸，生成迟到名单。
+    /// </summary>
+    public bool IsFaceAttendanceEnabled
+    {
+        get => _isFaceAttendanceEnabled;
+        set
+        {
+            if (value == _isFaceAttendanceEnabled) return;
+            _isFaceAttendanceEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 人脸考勤使用的摄像头索引。默认 0，可在设置里改（与远程监控共用同一个摄像头列表）。
+    /// </summary>
+    public int FaceAttendanceCameraIndex
+    {
+        get => _faceAttendanceCameraIndex;
+        set
+        {
+            if (value == _faceAttendanceCameraIndex) return;
+            _faceAttendanceCameraIndex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 一次考勤的抓拍张数。默认 4 张，配合「最少命中张数」做多帧投票压制偶发误判。
+    /// </summary>
+    public int FaceAttendanceCaptureCount
+    {
+        get => _faceAttendanceCaptureCount;
+        set
+        {
+            if (value == _faceAttendanceCaptureCount) return;
+            _faceAttendanceCaptureCount = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 抓拍间隔（毫秒）。默认 400，给摄像头自动曝光留出适应时间。
+    /// </summary>
+    public int FaceAttendanceCaptureIntervalMs
+    {
+        get => _faceAttendanceCaptureIntervalMs;
+        set
+        {
+            if (value == _faceAttendanceCaptureIntervalMs) return;
+            _faceAttendanceCaptureIntervalMs = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 最少命中张数：同一人需在这么多张照片中命中才算到场。默认 2。
+    /// </summary>
+    public int FaceAttendanceMinHits
+    {
+        get => _faceAttendanceMinHits;
+        set
+        {
+            if (value == _faceAttendanceMinHits) return;
+            _faceAttendanceMinHits = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 最小人脸像素宽度，小于这个的脸直接忽略。默认 60。
+    /// </summary>
+    public int FaceAttendanceMinFaceWidth
+    {
+        get => _faceAttendanceMinFaceWidth;
+        set
+        {
+            if (value == _faceAttendanceMinFaceWidth) return;
+            _faceAttendanceMinFaceWidth = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 余弦相似度判定阈值。<b>默认 0.363 是 SFace 的推荐值，不是通用阈值</b>：
+    /// 不同模型的相似度分布不同，阈值必须跟着模型走。
+    /// </summary>
+    public double FaceAttendanceThreshold
+    {
+        get => _faceAttendanceThreshold;
+        set
+        {
+            if (value.Equals(_faceAttendanceThreshold)) return;
+            _faceAttendanceThreshold = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 抓拍存档保留天数，超过的自动清理。默认 14 天。设为 0 表示立即清理。
+    /// </summary>
+    public int FaceAttendanceRetentionDays
+    {
+        get => _faceAttendanceRetentionDays;
+        set
+        {
+            if (value == _faceAttendanceRetentionDays) return;
+            _faceAttendanceRetentionDays = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 是否把抓拍照片存到磁盘。关闭后只在本机内存中比对，不落任何照片。
+    /// </summary>
+    public bool FaceAttendanceSaveSnapshots
+    {
+        get => _faceAttendanceSaveSnapshots;
+        set
+        {
+            if (value == _faceAttendanceSaveSnapshots) return;
+            _faceAttendanceSaveSnapshots = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 是否允许联网下载模型。默认关闭——学校网络通常访问不了 HuggingFace，
+    /// 开着只会在启动时白等一分钟。
+    /// </summary>
+    public bool FaceAttendanceAllowModelDownload
+    {
+        get => _faceAttendanceAllowModelDownload;
+        set
+        {
+            if (value == _faceAttendanceAllowModelDownload) return;
+            _faceAttendanceAllowModelDownload = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 识别模型选择：<c>auto</c> / <c>sface</c> / <c>arcface_mobilefacenet</c>。
+    /// </summary>
+    public string FaceAttendanceRecognizerModelId
+    {
+        get => _faceAttendanceRecognizerModelId;
+        set
+        {
+            if (value == _faceAttendanceRecognizerModelId) return;
+            _faceAttendanceRecognizerModelId = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>用户手动指定的检测模型路径（为空表示自动查找）。</summary>
+    public string FaceAttendanceDetectorModelPath
+    {
+        get => _faceAttendanceDetectorModelPath;
+        set
+        {
+            if (value == _faceAttendanceDetectorModelPath) return;
+            _faceAttendanceDetectorModelPath = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>用户手动指定的识别模型路径（为空表示自动查找）。</summary>
+    public string FaceAttendanceRecognizerModelPath
+    {
+        get => _faceAttendanceRecognizerModelPath;
+        set
+        {
+            if (value == _faceAttendanceRecognizerModelPath) return;
+            _faceAttendanceRecognizerModelPath = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 按模型分别记住的比对阈值。键形如 <c>FaceAttendanceThreshold_sface</c>。
+    /// <para>
+    /// <b>阈值必须按模型分别保存</b>：SFace 的 0.45 与 ArcFace 的 0.62 各记各的，
+    /// 切换模型不会把上一个模型的值带过去。这既是正确行为，也不会丢用户自己的调参。
+    /// </para>
+    /// </summary>
+    public Dictionary<string, double> FaceAttendancePerModelThresholds
+    {
+        get => _faceAttendancePerModelThresholds;
+        set
+        {
+            if (Equals(value, _faceAttendancePerModelThresholds)) return;
+            _faceAttendancePerModelThresholds = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 抓拍画面宽度。<b>默认 1280，不要调到 640</b>：
+    /// 640×480 下「异脸最大余弦」与阈值的余量只有 0.0007，等于随便两张脸都可能被判成同一人；
+    /// 1280×720 把余量拉开到 0.0444，合格人脸样本数也从 2 张增加到 5 张。
+    /// </summary>
+    public int FaceAttendanceCaptureWidth
+    {
+        get => _faceAttendanceCaptureWidth;
+        set
+        {
+            if (value == _faceAttendanceCaptureWidth) return;
+            _faceAttendanceCaptureWidth = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>抓拍画面高度。<b>默认 720</b>，理由同 <see cref="FaceAttendanceCaptureWidth"/>。</summary>
+    public int FaceAttendanceCaptureHeight
+    {
+        get => _faceAttendanceCaptureHeight;
+        set
+        {
+            if (value == _faceAttendanceCaptureHeight) return;
+            _faceAttendanceCaptureHeight = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 抓拍前预热秒数：丢掉若干帧让自动曝光/白平衡稳定。默认 1 秒。
+    /// </summary>
+    public int FaceAttendanceWarmUpSeconds
+    {
+        get => _faceAttendanceWarmUpSeconds;
+        set
+        {
+            if (value == _faceAttendanceWarmUpSeconds) return;
+            _faceAttendanceWarmUpSeconds = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 单次考勤的硬超时秒数，超过就中止本次识别。默认 120 秒。
+    /// </summary>
+    public int FaceAttendanceMaxDurationSeconds
+    {
+        get => _faceAttendanceMaxDurationSeconds;
+        set
+        {
+            if (value == _faceAttendanceMaxDurationSeconds) return;
+            _faceAttendanceMaxDurationSeconds = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 迟到判定方式：0 = 教室抓拍·缺席判定（应在场却没认出来的人算迟到）；
+    /// 1 = 门口抓拍·出现判定（被认出来的人算迟到）。
+    /// </summary>
+    public int FaceAttendanceJudgeMode
+    {
+        get => _faceAttendanceJudgeMode;
+        set
+        {
+            if (value == _faceAttendanceJudgeMode) return;
+            _faceAttendanceJudgeMode = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 补执行窗口（分钟）：到点后多久之内仍然执行，超过就放弃这一轮。
+    /// 避免中午启动软件时把早上那一次也补上。默认 2 分钟。
+    /// </summary>
+    public int FaceAttendanceGraceMinutes
+    {
+        get => _faceAttendanceGraceMinutes;
+        set
+        {
+            if (value == _faceAttendanceGraceMinutes) return;
+            _faceAttendanceGraceMinutes = value;
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 一周抓拍时间计划的 JSON 序列化形式。
+    /// <para>
+    /// 存 JSON 而不是把七天拆成 7 个属性，是因为集控下发的计划也是一整块 JSON，
+    /// 两边用同一种格式，下发时直接覆盖即可，不需要逐天对字段。
+    /// </para>
+    /// </summary>
+    public string FaceAttendanceWeekScheduleJson
+    {
+        get => _faceAttendanceWeekScheduleJson;
+        set
+        {
+            if (value == _faceAttendanceWeekScheduleJson) return;
+            _faceAttendanceWeekScheduleJson = value;
             OnPropertyChanged();
         }
     }

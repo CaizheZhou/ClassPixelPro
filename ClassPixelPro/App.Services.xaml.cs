@@ -112,6 +112,14 @@ public partial class App
         services.AddSingleton<RemoteMonitorService>();
         services.AddSingleton<Services.Management.RecordingService>();
         services.AddSingleton<Services.RemoteMonitor.TeacherBindingGate>();
+        // 人脸考勤服务
+        services.AddSingleton<Services.FaceAttendance.FaceAttendanceSettings>(
+            sp => new Services.FaceAttendance.FaceAttendanceSettings(() => sp.GetRequiredService<SettingsService>().Settings));
+        services.AddSingleton<Services.FaceAttendance.FaceModelProvider>();
+        services.AddSingleton<Services.FaceAttendance.RosterService>();
+        services.AddSingleton<Services.FaceAttendance.FaceAttendanceEngine>();
+        services.AddSingleton<Services.FaceAttendance.AttendanceService>();
+        services.AddHostedService<Services.FaceAttendance.LateCheckScheduler>();
         // ViewModels
         services.AddTransient<ProfileSettingsViewModel>();
         services.AddTransient<DevPortalViewModel>();
