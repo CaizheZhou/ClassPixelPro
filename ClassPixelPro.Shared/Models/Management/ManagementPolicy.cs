@@ -18,6 +18,7 @@ public class ManagementPolicy : ObservableRecipient
     private bool _allowExitManagement = true;
     private bool _disableEasterEggs = false;
     private bool _forceRemoteMonitor = false;
+    private bool _forceFaceAttendance = false;
     private double? _timeOffsetSeconds;
 
     public bool DisableProfileClassPlanEditing
@@ -82,6 +83,17 @@ public class ManagementPolicy : ObservableRecipient
     {
         get => _forceRemoteMonitor;
         set => SetProperty(ref _forceRemoteMonitor, value);
+    }
+
+    /// <summary>
+    /// 强制开启人脸考勤：为 true 时无论本地开关如何，客户端都会启用人脸考勤。
+    /// 考勤时间计划仍由本组织统一下发（集控后台「人脸考勤」标签页编辑），
+    /// 本地无法修改计划，与 <see cref="ForceRemoteMonitor"/> 同一机制。
+    /// </summary>
+    public bool ForceFaceAttendance
+    {
+        get => _forceFaceAttendance;
+        set => SetProperty(ref _forceFaceAttendance, value);
     }
 
     /// <summary>

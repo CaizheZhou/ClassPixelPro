@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using ClassPixelPro.Core;
+using ClassPixelPro.Core.Abstractions.Services.Management;
 using ClassPixelPro.Services.RemoteMonitor;
+using ClassPixelPro.Shared;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +31,7 @@ public sealed class LateCheckScheduler : BackgroundService
     private readonly FaceAttendanceSettings _settings;
     private readonly AttendanceService _attendance;
     private readonly TeacherBindingGate _bindingGate;
+    private readonly FacePlanSyncService _planSync;
     private readonly ILogger<LateCheckScheduler> _logger;
 
     /// <summary>已经执行过的时刻，键为 <c>yyyyMMdd + HH:mm:ss</c>。</summary>
@@ -42,20 +46,29 @@ public sealed class LateCheckScheduler : BackgroundService
         FaceAttendanceSettings settings,
         AttendanceService attendance,
         TeacherBindingGate bindingGate,
+        FacePlanSyncService planSync,
         ILogger<LateCheckScheduler> logger)
     {
         _settings = settings;
         _attendance = attendance;
         _bindingGate = bindingGate;
+        _planSync = planSync;
         _logger = logger;
     }
+
+    /// <summary>
+    /// 集控策略是否强制开启人脸考勤。策略由后台统一下发，本地用户改不了，
+    /// 因此它与本地开关是「或」的关系（强制开启时本地关掉也会执行）。
+    /// </summary>
+    private bool IsForced =>
+        IAppHost.TryGetService<IManagementService>()?.Policy.ForceFaceAttendance ?? false;
 
     /// <summary>
     /// 本服务当前是否应该运行：功能开着、已加入集控、且已绑定班主任。
     /// </summary>
     private async ValueTask<bool> ShouldRunAsync(CancellationToken ct)
     {
-        if (!_settings.IsEnabled) return false;
+        if (!_settings.IsEnabled && !IsForced) return false;
 
         // 绑定状态缓存 60 秒：这是一次 HTTP 请求，而本循环每秒跑一次。
         if (_cachedBound is not true || DateTime.Now - _lastBindingCheck > BindingCheckInterval)
@@ -77,40 +90,71 @@ public sealed class LateCheckScheduler : BackgroundService
     {
         _logger.LogInformation("人脸考勤定时服务已启动");
 
-        using var timer = new PeriodicTimer(PollInterval);
+        // 集控下发的计划由专门的同步服务拉取，这里只订阅它的「立即识别」命令。
+        _planSync.RunRequested += OnRunRequested;
         try
         {
-            while (await timer.WaitForNextTickAsync(stoppingToken))
+            using var timer = new PeriodicTimer(PollInterval);
+            try
             {
-                try
+                while (await timer.WaitForNextTickAsync(stoppingToken))
                 {
-                    if (!await ShouldRunAsync(stoppingToken).ConfigureAwait(false))
+                    try
                     {
-                        continue;
-                    }
+                        if (!await ShouldRunAsync(stoppingToken).ConfigureAwait(false))
+                        {
+                            continue;
+                        }
 
-                    if (TryConsumeTrigger(DateTime.Now, out var target, out var reason))
-                    {
-                        _logger.LogInformation("人脸考勤触发自动执行：{Reason}", reason);
-                        await _attendance.RunCheckAsync(false, stoppingToken).ConfigureAwait(false);
+                        if (TryConsumeTrigger(DateTime.Now, out var target, out var reason))
+                        {
+                            _logger.LogInformation("人脸考勤触发自动执行：{Reason}", reason);
+                            await _attendance.RunCheckAsync(false, stoppingToken).ConfigureAwait(false);
+                        }
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-                catch (Exception e)
-                {
-                    // 定时任务里任何异常都不能让循环退出，否则当天的考勤就再也不会有机会执行了。
-                    _logger.LogError(e, "人脸考勤定时执行出错");
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception e)
+                    {
+                        // 定时任务里任何异常都不能让循环退出，否则当天的考勤就再也不会有机会执行了。
+                        _logger.LogError(e, "人脸考勤定时执行出错");
+                    }
                 }
             }
+            catch (OperationCanceledException)
+            {
+            }
         }
-        catch (OperationCanceledException)
+        finally
         {
+            _planSync.RunRequested -= OnRunRequested;
         }
 
         _logger.LogInformation("人脸考勤定时服务已停止");
+    }
+
+    /// <summary>
+    /// 班主任端点了「立即识别一次」：手动执行不受时间计划限制，但仍要过功能开关与绑定门禁。
+    /// </summary>
+    private void OnRunRequested(DateTime commandAt)
+    {
+        // 手动触发走独立任务：RunCheckAsync 有 SemaphoreSlim 互斥，
+        // 与定时触发的并发由那一层兜住，这里不需要再加锁。
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (!await ShouldRunAsync(CancellationToken.None).ConfigureAwait(false)) return;
+                _logger.LogInformation("人脸考勤由班主任端手动触发");
+                await _attendance.RunCheckAsync(true, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "班主任端触发的人脸考勤执行失败");
+            }
+        });
     }
 
     /// <summary>
@@ -125,7 +169,8 @@ public sealed class LateCheckScheduler : BackgroundService
         target = TimeSpan.Zero;
         reason = "";
 
-        if (!_settings.IsEnabled) return false;
+        // 强制开启时即使本地开关关着也按计划执行（集控策略优先于本地开关）。
+        if (!_settings.IsEnabled && !IsForced) return false;
 
         var today = DateOnly.FromDateTime(now);
         PruneOldKeys(today);

@@ -3,10 +3,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using ClassPixelPro.Core;
+using ClassPixelPro.Core.Abstractions.Services.Management;
 using ClassPixelPro.Services.RemoteMonitor;
+using ClassPixelPro.Shared;
 using Microsoft.Extensions.Logging;
 using OpenCvSharp;
 
@@ -38,6 +42,7 @@ public sealed class AttendanceService : IDisposable
     private readonly RosterService _roster;
     private readonly FaceAttendanceEngine _engine;
     private readonly CameraCaptureService _camera;
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly ILogger<AttendanceService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -231,6 +236,7 @@ public sealed class AttendanceService : IDisposable
 
             SaveLastResult(record);
             CleanupSnapshots();
+            _ = ReportResultAsync(record);
 
             if (record.Success)
             {
@@ -472,6 +478,67 @@ public sealed class AttendanceService : IDisposable
         record.Message = message;
         record.ElapsedSeconds = stopwatch.Elapsed.TotalSeconds;
         return record;
+    }
+
+    /// <summary>
+    /// 把一次考勤结果上报集控后台，供班主任端与集控后台查看。
+    /// <para>
+    /// <b>只上报姓名、班级与统计数字。</b>特征向量、人脸小图、抓拍照片路径一律不离开本机，
+    /// 这是隐私设计的硬边界：服务端与网络链路上都不出现生物识别信息。
+    /// </para>
+    /// <para>失败只记日志：上报不成功不影响本机功能，下一轮考勤会再报。</para>
+    /// </summary>
+    private async Task ReportResultAsync(LateRecord record)
+    {
+        try
+        {
+            var mgmt = IAppHost.TryGetService<IManagementService>();
+            if (mgmt is not { IsManagementEnabled: true }) return;
+            var baseUrl = mgmt.GetManagementBaseUrl();
+            var orgId = mgmt.GetOrganizationId();
+            if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(orgId)) return;
+
+            var payload = new
+            {
+                date = record.CaptureTime.ToString("yyyy-MM-dd"),
+                triggerTime = record.CaptureTime.ToString("HH:mm:ss"),
+                manual = record.Manual,
+                success = record.Success,
+                message = record.Message,
+                expectedCount = record.ExpectedCount,
+                photoCount = record.PhotoCount,
+                faceCount = record.FaceCount,
+                recognizedCount = record.Recognized.Count,
+                elapsedSeconds = record.ElapsedSeconds,
+                late = record.Late.Select(x => new
+                {
+                    name = x.Name,
+                    className = x.ClassName,
+                    reason = x.Reason,
+                    hits = x.Hits,
+                    score = x.Score,
+                }).ToList(),
+            };
+
+            var url = $"{baseUrl}/api/mgmt/{orgId}/serverless/face-result?cuid={mgmt.Persist.ClientUniqueId}";
+            using var content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(payload),
+                System.Text.Encoding.UTF8, "application/json");
+            using var resp = await _http.PostAsync(url, content).ConfigureAwait(false);
+            if (resp.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("已上报考勤结果到集控（迟到 {Count} 人）", record.Late.Count);
+            }
+            else
+            {
+                _logger.LogWarning("上报考勤结果失败：HTTP {Code}", (int)resp.StatusCode);
+            }
+        }
+        catch (Exception e)
+        {
+            // 上报失败不影响考勤本身：结果已存本机，班主任端下次仍能看到新的。
+            _logger.LogWarning(e, "上报考勤结果失败");
+        }
     }
 
     /// <summary>

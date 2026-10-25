@@ -119,6 +119,8 @@ public partial class App
         services.AddSingleton<Services.FaceAttendance.RosterService>();
         services.AddSingleton<Services.FaceAttendance.FaceAttendanceEngine>();
         services.AddSingleton<Services.FaceAttendance.AttendanceService>();
+        services.AddSingleton<Services.FaceAttendance.EnrollmentService>();
+        services.AddSingleton<Services.FaceAttendance.FacePlanSyncService>();
         services.AddHostedService<Services.FaceAttendance.LateCheckScheduler>();
         // ViewModels
         services.AddTransient<ProfileSettingsViewModel>();
@@ -150,6 +152,7 @@ public partial class App
         services.AddTransient<DebugPageViewModel>();
         services.AddTransient<RefreshingSettingsViewModel>();
         services.AddTransient<RemoteMonitorSettingsViewModel>();
+        services.AddTransient<FaceAttendanceSettingsViewModel>();
         // Views
         services.AddTransient<ITopmostEffectPlayer>(x => x.GetRequiredService<TopmostEffectWindow>());
         services.AddSingleton<Views.Controls.MonitorIndicator>();
@@ -206,6 +209,7 @@ public partial class App
         services.AddSettingsPage<ManagementPolicySettingsPage>();
         services.AddSettingsPage<ErrorSettingsPage>();
         services.AddSettingsPage<RemoteMonitorSettingsPage>();
+        services.AddSettingsPage<FaceAttendanceSettingsPage>();
         // 主界面组件
         services.AddComponent<TextComponent, TextComponentSettingsControl>();
         services.AddComponent<SeparatorComponent>();

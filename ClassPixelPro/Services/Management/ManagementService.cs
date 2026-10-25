@@ -604,6 +604,7 @@ public class ManagementService : ObservableRecipient, IManagementService
         }
 
         StartRecordingService();
+        StartFacePlanSyncService();
         return await ReloadManagementAsync();
     }
 
@@ -619,6 +620,22 @@ public class ManagementService : ObservableRecipient, IManagementService
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "启动录制计划服务失败");
+        }
+    }
+
+    /// <summary>
+    /// 启动人脸考勤计划同步服务（幂等）：拉取组织下发的考勤计划并应用，
+    /// 同时接收班主任端的「立即识别一次」命令。集控未启用时服务自身会跳过。
+    /// </summary>
+    private void StartFacePlanSyncService()
+    {
+        try
+        {
+            IAppHost.TryGetService<FaceAttendance.FacePlanSyncService>()?.Start();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "启动人脸考勤计划同步服务失败");
         }
     }
 

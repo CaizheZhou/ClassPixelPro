@@ -1,0 +1,239 @@
+<controls:SettingsPageBase x:Class="ClassPixelPro.Views.SettingPages.FaceAttendanceSettingsPage"
+      xmlns="https://github.com/avaloniaui"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+      xmlns:local="clr-namespace:ClassPixelPro.Views.SettingPages"
+      xmlns:controls="clr-namespace:ClassPixelPro.Core.Abstractions.Controls;assembly=ClassPixelPro.Core"
+      xmlns:controls1="clr-namespace:ClassPixelPro.Core.Controls;assembly=ClassPixelPro.Core"
+      xmlns:ci="http://classpixelpro.tech/schemas/xaml/core"
+      xmlns:controls3="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
+      xmlns:system="clr-namespace:System;assembly=System.Runtime"
+      mc:Ignorable="d"
+      Design.Width="960" Design.Height="500"
+      d:DataContext="{d:DesignInstance local:FaceAttendanceSettingsPage}"
+      Loaded="FaceAttendanceSettingsPage_OnLoaded"
+      Unloaded="FaceAttendanceSettingsPage_OnUnloaded">
+    <ScrollViewer>
+        <StackPanel Classes="settings-container animated-intro">
+            <controls1:IconText Glyph="&#xE4E8;" Text="人脸考勤" Margin="0 0 0 4" />
+
+            <!-- 前置条件横幅：未加入集控或未绑定班主任时显示 -->
+            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                    Background="{DynamicResource InfoBarWarningSeverityBrush}"
+                    Padding="16 12"
+                    CornerRadius="8"
+                    Margin="0 0 0 8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ci:FluentIcon Glyph="&#xE7BA;" FontSize="16" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding ViewModel.PrerequisiteMessage}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- 功能说明横幅（前置条件满足时显示） -->
+            <Border IsVisible="{Binding ViewModel.PrerequisiteMessage, Converter={x:Static StringConverters.IsNullOrEmpty}}"
+                    Background="{DynamicResource ControlFillColorDefaultBrush}"
+                    Padding="16 12"
+                    CornerRadius="8"
+                    Margin="0 0 0 8">
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ci:FluentIcon Glyph="&#xE946;" FontSize="16" VerticalAlignment="Center" />
+                        <TextBlock Text="人脸考勤到设定时间自动抓拍一轮，比对本机人脸库得出迟到名单。"
+                                   TextWrapping="Wrap" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <TextBlock Text="人脸特征只保存在本机，上报集控的只有姓名与统计数字。抓拍时间由组织统一下发，本地不能修改。"
+                               TextWrapping="Wrap" Opacity="0.7" FontSize="12" Margin="20 0 0 0" />
+                </StackPanel>
+            </Border>
+
+            <!-- 功能总开关 -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE4E8;}"
+                                        Header="启用人脸考勤"
+                                        Description="开启后按组织下发的抓拍时间自动执行考勤；结果供班主任端查看。"
+                                        IsExpanded="True">
+                <controls3:SettingsExpander.Footer>
+                    <ToggleSwitch IsChecked="{Binding ViewModel.FaceSettings.IsEnabled, Mode=TwoWay}"
+                                  IsCheckedChanged="ToggleEnabled_OnIsCheckedChanged"
+                                  IsEnabled="{Binding ViewModel.CanToggleEnabled}" />
+                </controls3:SettingsExpander.Footer>
+                <controls3:SettingsExpanderItem Content="立即执行一次"
+                                                Description="手动触发一轮完整考勤，不受时间计划限制。"
+                                                IsClickEnabled="True"
+                                                Click="ButtonRunOnce_OnClick" />
+            </controls3:SettingsExpander>
+
+            <!-- 运行状态 -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE7B3;}"
+                                        Header="运行状态"
+                                        IsExpanded="True"
+                                        IsVisible="{Binding ViewModel.FaceSettings.IsEnabled}">
+                <controls3:SettingsExpanderItem Content="当前状态">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <TextBlock Text="{Binding ViewModel.StatusText}" VerticalAlignment="Center" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="阶段"
+                                                IsVisible="{Binding ViewModel.ProgressVisible}">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <TextBlock Text="{Binding ViewModel.StageText}" VerticalAlignment="Center" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="进度"
+                                                IsVisible="{Binding ViewModel.ProgressVisible}">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <ProgressBar Width="160" Height="6" Minimum="0" Maximum="100"
+                                     Value="{Binding ViewModel.ProgressPercent}" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="最近一次结果">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <TextBlock Text="{Binding ViewModel.LastResultSummary}"
+                                   VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="360" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+            </controls3:SettingsExpander>
+
+            <!-- 抓拍时间计划：只读，组织统一下发 -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE787;}"
+                                        Header="抓拍时间"
+                                        Description="由组织在集控后台统一设置，每 60 秒同步一次，本地不可修改。"
+                                        IsExpanded="True">
+                <controls3:SettingsExpanderItem Content="当前计划">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding ViewModel.PlanDescription}"
+                                       VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="300"
+                                       IsVisible="{Binding !!ViewModel.PlanDescription.Length}" />
+                            <TextBlock Text="组织尚未下发考勤时间" VerticalAlignment="Center" Opacity="0.6"
+                                       IsVisible="{Binding !ViewModel.PlanDescription.Length}" />
+                            <Button Theme="{StaticResource TransparentButton}"
+                                    Content="{ci:FluentIcon &#xE72C;}"
+                                    ToolTip.Tip="立即同步一次计划"
+                                    Click="ButtonRefreshPlan_OnClick"
+                                    VerticalAlignment="Center" />
+                        </StackPanel>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+            </controls3:SettingsExpander>
+
+            <!-- 识别模型 -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE945;}"
+                                        Header="识别模型"
+                                        Description="两个模型随应用包发布，纯 CPU 推理，8 GB 内存即可运行。"
+                                        IsExpanded="True">
+                <controls3:SettingsExpanderItem Content="模型状态">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding ViewModel.ModelStatus}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding ViewModel.RecognizerDisplay}" VerticalAlignment="Center"
+                                       Opacity="0.6" IsVisible="{Binding ViewModel.ModelReady}" />
+                        </StackPanel>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="当前阈值"
+                                                Description="阈值跟着实际载入的模型走，两款模型各用各的值。"
+                                                IsVisible="{Binding ViewModel.ModelReady}">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{Binding ViewModel.EffectiveThreshold, StringFormat={}{0:F3}}"
+                                       VerticalAlignment="Center" FontFamily="Consolas" />
+                            <TextBlock Text="{Binding ViewModel.ThresholdNote}"
+                                       VerticalAlignment="Center" Opacity="0.6" FontSize="12" />
+                        </StackPanel>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="载入模型"
+                                                Description="首次使用或更换模型后点此载入，约需几秒。"
+                                                IsClickEnabled="True"
+                                                Click="ButtonLoadModels_OnClick" />
+            </controls3:SettingsExpander>
+
+            <!-- 摄像头 -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE8B6;}"
+                                        Header="摄像头"
+                                        Description="考勤抓拍与远程监控、录制计划共用同一路摄像头；被占用时本轮自动跳过。"
+                                        IsVisible="{Binding ViewModel.CameraSupported}">
+                <controls3:SettingsExpanderItem Content="摄像头自检"
+                                                Description="抓一帧并报告分辨率，用于确认摄像头可用。"
+                                                IsClickEnabled="True"
+                                                Click="ButtonTestCamera_OnClick" />
+            </controls3:SettingsExpander>
+
+            <!-- 花名册 -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE8BD;}"
+                                        Header="花名册"
+                                        Description="已录入人脸的同学才会参与考勤判定；请假的同学不计迟到。"
+                                        IsExpanded="True">
+                <controls3:SettingsExpanderItem Content="已录入人数">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <TextBlock VerticalAlignment="Center">
+                            <Run Text="{Binding ViewModel.RosterCount}" />
+                            <Run Text=" 人 / " />
+                            <Run Text="{Binding ViewModel.SampleCount}" />
+                            <Run Text=" 条样本" />
+                        </TextBlock>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="远程录入"
+                                                Description="拉取班主任端上传的照片并导入。班主任上传时填的姓名会自动匹配花名册。"
+                                                IsClickEnabled="True"
+                                                Click="ButtonRemoteEnroll_OnClick" />
+                <controls3:SettingsExpanderItem Content="添加同学"
+                                                Description="先加到花名册，再用摄像头或照片录入人脸。"
+                                                IsClickEnabled="True"
+                                                Click="ButtonAddStudent_OnClick" />
+
+                <!-- 学生列表 -->
+                <controls3:SettingsExpanderItem Content="同学列表"
+                                                IsClickEnabled="False"
+                                                IsVisible="{Binding !!ViewModel.Students.Count}">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <Button Theme="{StaticResource TransparentButton}"
+                                Content="{ci:FluentIcon &#xE72C;}"
+                                ToolTip.Tip="刷新花名册"
+                                Click="ButtonRefreshRoster_OnClick"
+                                VerticalAlignment="Center" />
+                    </controls3:SettingsExpanderItem.Footer>
+                    <ItemsControl ItemsSource="{Binding ViewModel.Students}" Margin="0 8 0 0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1" CornerRadius="4" Padding="10 8" Margin="0 0 0 6">
+                                    <Grid ColumnDefinitions="*,Auto,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding ClassName}" FontSize="12" Opacity="0.6"
+                                                       IsVisible="{Binding !!ClassName.Length}" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
+                                                   Opacity="0.7" Margin="12 0"
+                                                   Text="{Binding FaceCount, StringFormat={}{}{0} 条样本}" />
+                                        <Button Grid.Column="2" VerticalAlignment="Center"
+                                                Theme="{StaticResource TransparentButton}"
+                                                Content="{ci:FluentIcon &#xE74D;}"
+                                                ToolTip.Tip="删除该同学及其人脸样本"
+                                                Command="{Binding $parent[ItemsControl].DataContext.ViewModel.RemoveStudentCommand}"
+                                                CommandParameter="{Binding}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </controls3:SettingsExpanderItem>
+            </controls3:SettingsExpander>
+
+            <!-- 操作结果 -->
+            <Border Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    CornerRadius="4" Padding="12" Margin="0,8,0,0"
+                    IsVisible="{Binding !!ViewModel.ActionMessage.Length}">
+                <TextBlock Text="{Binding ViewModel.ActionMessage}" TextWrapping="Wrap" />
+            </Border>
+
+            <!-- 隐私说明 -->
+            <TextBlock Margin="0 12 0 0" TextWrapping="Wrap" FontSize="12" Opacity="0.7"
+                       Text="人脸特征向量与人脸小图只保存在本机；上送到集控与班主任端的仅有姓名、班级与统计数字，链路上不出现任何生物识别信息。抓拍照片按「保留天数」自动清理。" />
+        </StackPanel>
+    </ScrollViewer>
+</controls:SettingsPageBase>
