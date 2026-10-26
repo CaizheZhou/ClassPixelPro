@@ -1,10 +1,12 @@
 using System;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using ClassPixelPro.Core.Abstractions.Controls;
 using ClassPixelPro.Core.Attributes;
 using ClassPixelPro.Core.Enums.SettingsWindow;
 using ClassPixelPro.Core.Helpers.UI;
+using ClassPixelPro.Services.FaceAttendance;
 using ClassPixelPro.Shared;
 using ClassPixelPro.ViewModels.SettingsPages;
 
@@ -31,7 +33,41 @@ public partial class FaceAttendanceSettingsPage : SettingsPageBase
 
     private async void FaceAttendanceSettingsPage_OnLoaded(object sender, RoutedEventArgs e)
     {
+        // 智能导入遇到多脸照片时要问用户「这张脸归谁」，这里把弹窗交给 ViewModel。
+        // 不挂的话 AskSmartAsync 一律返回「跳过」，合影一张也录不进去。
+        ViewModel.SmartPromptHandler = ShowSmartPromptAsync;
         await ViewModel.InitializeAsync();
+    }
+
+    /// <summary>
+    /// 弹出「这张照片是谁？」让用户挑脸与归属同学。窗口被直接关掉时按「跳过」处理。
+    /// </summary>
+    private async Task<SmartDecision> ShowSmartPromptAsync(SmartPrompt prompt)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner == null) return new SmartDecision { Skip = true };
+
+        var window = new FaceEnrollPromptWindow(prompt, ViewModel.Roster.Students);
+        var result = await window.ShowDialog<SmartDecision?>(owner);
+        return result ?? new SmartDecision { Skip = true };
+    }
+
+    /// <summary>
+    /// 同学列表里的「参与考勤 / 今日请假」开关。Student 是纯数据类，
+    /// 绑定只会改内存里的值，这里补一次落盘。
+    /// </summary>
+    private void StudentFlag_OnChanged(object? sender, RoutedEventArgs e)
+    {
+        ViewModel.Roster.Save();
+    }
+
+    private async void ButtonImportModel_OnClick(object sender, RoutedEventArgs e)
+    {
+        await ViewModel.ImportModelFileCommand.ExecuteAsync(null);
+        if (!string.IsNullOrEmpty(ViewModel.ActionMessage))
+        {
+            this.ShowToast(ViewModel.ActionMessage);
+        }
     }
 
     private void FaceAttendanceSettingsPage_OnUnloaded(object sender, RoutedEventArgs e)

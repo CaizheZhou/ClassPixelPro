@@ -1,0 +1,73 @@
+<controls:ComponentBase xmlns:ci="http://classpixelpro.tech/schemas/xaml/core"
+                        x:TypeArguments="componentSettings:LateListComponentSettings"
+                        x:Class="ClassPixelPro.Controls.Components.LateListComponentSettingsControl"
+                        xmlns="https://github.com/avaloniaui"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                        xmlns:local="clr-namespace:ClassPixelPro.Controls.Components"
+                        xmlns:controls="clr-namespace:ClassPixelPro.Core.Abstractions.Controls;assembly=ClassPixelPro.Core"
+                        xmlns:componentSettings="clr-namespace:ClassPixelPro.Models.ComponentSettings"
+                        xmlns:controls1="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
+                        mc:Ignorable="d"
+                        d:DesignHeight="450" d:DesignWidth="800">
+    <ScrollViewer>
+        <StackPanel Classes="component-settings-container animated-intro" Margin="0"
+                    DataContext="{Binding RelativeSource={RelativeSource FindAncestor, AncestorType=local:LateListComponentSettingsControl}}">
+            <controls1:SettingsExpander IconSource="{ci:FluentIconSource &#xE8D4;}"
+                                        Header="标题"
+                                        Description="组件顶部显示的标题文字。">
+                <controls1:SettingsExpander.Footer>
+                    <TextBox MinWidth="200"
+                             Text="{Binding Settings.Title, UpdateSourceTrigger=PropertyChanged}" />
+                </controls1:SettingsExpander.Footer>
+            </controls1:SettingsExpander>
+
+            <controls1:SettingsExpander IconSource="{ci:FluentIconSource &#xE9D2;}"
+                                        Header="最多显示人数"
+                                        Description="名单最多显示几位同学，超出后折叠为「等 N 人」。填 0 表示不限制。">
+                <controls1:SettingsExpander.Footer>
+                    <controls1:NumberBox Minimum="0" Maximum="200" SpinButtonPlacementMode="Inline"
+                                         Width="140"
+                                         Value="{Binding Settings.MaxDisplayNames}" />
+                </controls1:SettingsExpander.Footer>
+            </controls1:SettingsExpander>
+
+            <controls1:SettingsExpander IconSource="{ci:FluentIconSource &#xE7C3;}"
+                                        Header="没有迟到时隐藏"
+                                        Description="本次考勤无人迟到时，整块组件不显示。">
+                <controls1:SettingsExpander.Footer>
+                    <ToggleSwitch IsChecked="{Binding Settings.HideWhenEmpty}" />
+                </controls1:SettingsExpander.Footer>
+            </controls1:SettingsExpander>
+
+            <controls1:SettingsExpander IconSource="{ci:FluentIconSource &#xE9D9;}"
+                                        Header="显示状态行"
+                                        Description="显示「正在识别…」「本次无人迟到」等当前状态。">
+                <controls1:SettingsExpander.Footer>
+                    <ToggleSwitch IsChecked="{Binding Settings.ShowStatusLine}" />
+                </controls1:SettingsExpander.Footer>
+            </controls1:SettingsExpander>
+
+            <controls1:SettingsExpander IconSource="{ci:FluentIconSource &#xE787;}"
+                                        Header="显示识别明细"
+                                        Description="显示识别时间、抓拍张数、检测到的人脸数与耗时。">
+                <controls1:SettingsExpander.Footer>
+                    <ToggleSwitch IsChecked="{Binding Settings.ShowDetectTime}" />
+                </controls1:SettingsExpander.Footer>
+            </controls1:SettingsExpander>
+
+            <controls1:SettingsExpander IconSource="{ci:FluentIconSource &#xE8E9;}"
+                                        Header="姓名字号"
+                                        Description="迟到名单姓名的字号。">
+                <controls1:SettingsExpander.Footer>
+                    <Slider Width="200"
+                            TickFrequency="1" TickPlacement="None"
+                            Minimum="11" Maximum="28" IsSnapToTickEnabled="True"
+                            Value="{Binding Settings.FontSize}"
+                            Classes="auto-tooltip" />
+                </controls1:SettingsExpander.Footer>
+            </controls1:SettingsExpander>
+        </StackPanel>
+    </ScrollViewer>
+</controls:ComponentBase>

@@ -1,0 +1,59 @@
+<controls:ComponentBase x:TypeArguments="componentSettings:LateListComponentSettings"
+                        x:Class="ClassPixelPro.Controls.Components.LateListComponent"
+                        xmlns="https://github.com/avaloniaui"
+                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                        xmlns:mc="http://schemas.openxmlformats.org/markup-commpatibility/2006"
+                        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                        xmlns:local="clr-namespace:ClassPixelPro.Controls.Components"
+                        xmlns:controls="clr-namespace:ClassPixelPro.Core.Abstractions.Controls;assembly=ClassPixelPro.Core"
+                        xmlns:componentSettings="clr-namespace:ClassPixelPro.Models.ComponentSettings"
+                        mc:Ignorable="d"
+                        d:DesignHeight="450" d:DesignWidth="800">
+    <Border x:Name="RootCard"
+            Padding="12 8"
+            CornerRadius="8"
+            BorderThickness="1"
+            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto">
+            <!-- 标题行：标题 + 迟到人数徽标 -->
+            <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" x:Name="TitleText"
+                           Text="早读迟到"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center" />
+                <Border Grid.Column="1" x:Name="CountBadge"
+                        Padding="7 2"
+                        CornerRadius="10"
+                        VerticalAlignment="Center"
+                        Background="#CCE5534B">
+                    <TextBlock x:Name="CountText" Text="0 人"
+                               Foreground="White"
+                               FontSize="12"
+                               FontWeight="SemiBold" />
+                </Border>
+            </Grid>
+
+            <!-- 名单行：迟到同学姓名 -->
+            <TextBlock Grid.Row="1" x:Name="NamesText"
+                       TextWrapping="Wrap"
+                       Margin="0 6 0 0"
+                       IsVisible="False" />
+
+            <!-- 状态行 -->
+            <TextBlock Grid.Row="2" x:Name="StatusText"
+                       Opacity="0.72"
+                       TextWrapping="Wrap"
+                       Margin="0 4 0 0"
+                       IsVisible="False" />
+
+            <!-- 明细行 -->
+            <TextBlock Grid.Row="3" x:Name="TimeText"
+                       Opacity="0.55"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Margin="0 2 0 0"
+                       IsVisible="False" />
+        </Grid>
+    </Border>
+</controls:ComponentBase>

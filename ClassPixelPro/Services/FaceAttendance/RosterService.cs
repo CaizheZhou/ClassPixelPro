@@ -273,6 +273,30 @@ public sealed class RosterService
         return student;
     }
 
+    /// <summary>重命名一位学生（或改班级）。姓名重复时返回 false。</summary>
+    public bool RenameStudent(Student student, string newName, string? newClassName = null)
+    {
+        var name = (newName ?? "").Trim();
+        if (name.Length == 0) return false;
+
+        var className = (newClassName ?? student.ClassName ?? "").Trim();
+        lock (_sync)
+        {
+            if (Students.Any(x => !ReferenceEquals(x, student)
+                                  && string.Equals(x.Name, name, StringComparison.Ordinal)
+                                  && string.Equals(x.ClassName ?? "", className, StringComparison.Ordinal)))
+            {
+                return false;
+            }
+
+            student.Name = name;
+            student.ClassName = className;
+        }
+
+        RaiseChanged();
+        return true;
+    }
+
     /// <summary>删除一位学生。</summary>
     public bool RemoveStudent(Student student)
     {
@@ -314,6 +338,21 @@ public sealed class RosterService
         }
 
         RaiseChanged(save);
+        return true;
+    }
+
+    /// <summary>删除某位学生的单条人脸样本。</summary>
+    /// <param name="student">学生。</param>
+    /// <param name="index">样本在 <see cref="Student.Faces"/> 中的下标（界面列表的顺序）。</param>
+    public bool RemoveFaceSample(Student student, int index)
+    {
+        lock (_sync)
+        {
+            if (index < 0 || index >= student.Faces.Count) return false;
+            student.Faces.RemoveAt(index);
+        }
+
+        RaiseChanged();
         return true;
     }
 

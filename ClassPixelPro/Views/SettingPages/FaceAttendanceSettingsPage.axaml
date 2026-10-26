@@ -118,10 +118,80 @@
                 </controls3:SettingsExpanderItem>
             </controls3:SettingsExpander>
 
+            <!-- 抓拍与判定参数 -->
+            <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE713;}"
+                                        Header="抓拍与判定参数"
+                                        Description="默认值已按 1280×720、多帧投票 2/4 调好；不确定就先别动。">
+                <controls3:SettingsExpanderItem Content="判定方式"
+                                                Description="{Binding ViewModel.JudgeModeHint}">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <ComboBox ItemsSource="{Binding ViewModel.JudgeModeOptions}"
+                                  SelectedItem="{Binding ViewModel.SelectedJudgeMode, Mode=TwoWay}"
+                                  DisplayMemberBinding="{Binding DisplayName}"
+                                  MinWidth="200" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="抓拍分辨率"
+                                                Description="后排同学认不出来多半是分辨率不够；调高会更慢。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <ComboBox ItemsSource="{Binding ViewModel.ResolutionOptions}"
+                                  SelectedItem="{Binding ViewModel.SelectedResolution, Mode=TwoWay}"
+                                  DisplayMemberBinding="{Binding Description}"
+                                  MinWidth="260" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="抓拍张数"
+                                                Description="一轮连拍几张。人多的班建议 4 张以上。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <NumericUpDown MinWidth="120" Minimum="1" Maximum="20"
+                                       FormatString="0"
+                                       Value="{Binding ViewModel.CaptureCount, Mode=TwoWay}" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="抓拍间隔"
+                                                Description="两张之间的毫秒数。太大同学会走开，太小画面几乎一样。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <NumericUpDown MinWidth="120" Minimum="0" Maximum="5000" Increment="100"
+                                       FormatString="0"
+                                       Value="{Binding ViewModel.CaptureIntervalMs, Mode=TwoWay}" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="最少命中张数"
+                                                Description="多帧投票：同一个同学至少在几张照片里被认出来才算到。调高更不容易误判。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <NumericUpDown MinWidth="120" Minimum="1" Maximum="20"
+                                       FormatString="0"
+                                       Value="{Binding ViewModel.MinHits, Mode=TwoWay}" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="抓拍前预热"
+                                                Description="摄像头从休眠唤醒需要时间，预热期间不取帧。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <NumericUpDown MinWidth="120" Minimum="0" Maximum="10"
+                                       FormatString="0"
+                                       Value="{Binding ViewModel.WarmUpSeconds, Mode=TwoWay}" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="保留抓拍照片"
+                                                Description="保留后可回看当时的画面，便于核对漏判。照片只存在本机。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <ToggleSwitch IsChecked="{Binding ViewModel.SaveSnapshots, Mode=TwoWay}" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="照片保留天数"
+                                                IsVisible="{Binding ViewModel.SaveSnapshots}">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <NumericUpDown MinWidth="120" Minimum="1" Maximum="365"
+                                       FormatString="0"
+                                       Value="{Binding ViewModel.RetentionDays, Mode=TwoWay}" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+            </controls3:SettingsExpander>
+
             <!-- 识别模型 -->
             <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE945;}"
                                         Header="识别模型"
-                                        Description="两个模型随应用包发布，纯 CPU 推理，8 GB 内存即可运行。"
+                                        Description="SFace 随应用包发布，纯 CPU 推理，8 GB 内存即可运行；ArcFace 更准，需单独下载或从 U 盘导入。"
                                         IsExpanded="True">
                 <controls3:SettingsExpanderItem Content="模型状态">
                     <controls3:SettingsExpanderItem.Footer>
@@ -132,15 +202,31 @@
                         </StackPanel>
                     </controls3:SettingsExpanderItem.Footer>
                 </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="选用模型"
+                                                Description="换模型后要重新点「载入模型」，并重新录入人脸（不同模型的特征不能混用）。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <ComboBox ItemsSource="{Binding ViewModel.RecognizerModels}"
+                                  SelectedItem="{Binding ViewModel.SelectedRecognizerModel, Mode=TwoWay}"
+                                  DisplayMemberBinding="{Binding DisplayName}"
+                                  MinWidth="240" />
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
                 <controls3:SettingsExpanderItem Content="当前阈值"
-                                                Description="阈值跟着实际载入的模型走，两款模型各用各的值。"
+                                                Description="相似度高于它才算同一个人。阈值按模型分别保存，切换模型不会串值。"
                                                 IsVisible="{Binding ViewModel.ModelReady}">
                     <controls3:SettingsExpanderItem.Footer>
-                        <StackPanel Orientation="Horizontal" Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="{Binding ViewModel.EffectiveThreshold, StringFormat={}{0:F3}}"
                                        VerticalAlignment="Center" FontFamily="Consolas" />
                             <TextBlock Text="{Binding ViewModel.ThresholdNote}"
-                                       VerticalAlignment="Center" Opacity="0.6" FontSize="12" />
+                                       VerticalAlignment="Center" Opacity="0.6" FontSize="12"
+                                       MaxWidth="240" TextWrapping="Wrap" />
+                            <NumericUpDown MinWidth="120" Minimum="0.05" Maximum="0.99" Increment="0.005"
+                                           FormatString="0.000"
+                                           Value="{Binding ViewModel.Threshold, Mode=TwoWay}" />
+                            <Button Content="恢复推荐值"
+                                    IsVisible="{Binding ViewModel.IsThresholdCustomized}"
+                                    Command="{Binding ViewModel.ResetThresholdCommand}" />
                         </StackPanel>
                     </controls3:SettingsExpanderItem.Footer>
                 </controls3:SettingsExpanderItem>
@@ -148,17 +234,56 @@
                                                 Description="首次使用或更换模型后点此载入，约需几秒。"
                                                 IsClickEnabled="True"
                                                 Click="ButtonLoadModels_OnClick" />
+                <controls3:SettingsExpanderItem Content="模型自检"
+                                                Description="真跑一次推理，把「文件都在但跑不起来」暴露出来。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding ViewModel.SelfTestResult}" VerticalAlignment="Center"
+                                       MaxWidth="320" TextWrapping="Wrap" />
+                            <Button Content="开始自检"
+                                    Command="{Binding ViewModel.SelfTestCommand}" />
+                        </StackPanel>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="从文件导入模型"
+                                                Description="学校网络连不上模型站时，用 U 盘把 .onnx 拷过来导入。"
+                                                IsClickEnabled="True"
+                                                Click="ButtonImportModel_OnClick" />
             </controls3:SettingsExpander>
 
             <!-- 摄像头 -->
             <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE8B6;}"
                                         Header="摄像头"
                                         Description="考勤抓拍与远程监控、录制计划共用同一路摄像头；被占用时本轮自动跳过。"
+                                        IsExpanded="True"
                                         IsVisible="{Binding ViewModel.CameraSupported}">
+                <controls3:SettingsExpanderItem Content="使用摄像头"
+                                                Description="多路摄像头时选对着教室的那一路；这里改了，远程监控也跟着用这一路。">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox ItemsSource="{Binding ViewModel.AvailableCameras}"
+                                      SelectedItem="{Binding ViewModel.SelectedCamera, Mode=TwoWay}"
+                                      DisplayMemberBinding="{Binding Name}"
+                                      MinWidth="200" />
+                            <Button Content="{ci:FluentIcon &#xE72C;}"
+                                    ToolTip.Tip="重新读取摄像头列表"
+                                    Command="{Binding ViewModel.RefreshCamerasCommand}" />
+                        </StackPanel>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
                 <controls3:SettingsExpanderItem Content="摄像头自检"
-                                                Description="抓一帧并报告分辨率，用于确认摄像头可用。"
+                                                Description="抓一帧并报告分辨率，用于确认摄像头可用、镜头对着人。"
                                                 IsClickEnabled="True"
                                                 Click="ButtonTestCamera_OnClick" />
+                <controls3:SettingsExpanderItem Content="自检画面"
+                                                IsClickEnabled="False"
+                                                IsVisible="{Binding ViewModel.CameraPreview, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <Border CornerRadius="6" Padding="4" Margin="0 8 0 0"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                        <Image Source="{Binding ViewModel.CameraPreview}" Stretch="Uniform"
+                               MaxHeight="220" HorizontalAlignment="Left" />
+                    </Border>
+                </controls3:SettingsExpanderItem>
             </controls3:SettingsExpander>
 
             <!-- 花名册 -->
@@ -176,16 +301,41 @@
                         </TextBlock>
                     </controls3:SettingsExpanderItem.Footer>
                 </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="添加同学"
+                                                Description="先加到花名册，再用摄像头或照片录入人脸。">
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0 8 0 0">
+                        <TextBox x:Name="AddNameBox" MinWidth="180" Watermark="姓名" />
+                        <Button Content="添加到花名册" Classes="accent"
+                                Command="{Binding ViewModel.AddStudentCommand}"
+                                CommandParameter="{Binding #AddNameBox.Text}" />
+                    </StackPanel>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="批量导入名单"
+                                                Description="从 Excel / 班级名单里复制，每行一位同学，支持「姓名」或「姓名,班级」。">
+                    <StackPanel Spacing="8" Margin="0 8 0 0">
+                        <TextBox Text="{Binding ViewModel.RosterImportText, Mode=TwoWay}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" Height="96"
+                                 Watermark="张三&#10;李四,高一(3)班&#10;王五 高一(3)班" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox MinWidth="180" Watermark="默认班级（可留空）"
+                                     Text="{Binding ViewModel.DefaultClassName, Mode=TwoWay}" />
+                            <Button Content="导入名单" Classes="accent"
+                                    Command="{Binding ViewModel.ImportRosterFromTextCommand}" />
+                            <Button Content="从剪贴板粘贴"
+                                    Command="{Binding ViewModel.ImportRosterFromClipboardCommand}" />
+                            <Button Content="导出 CSV"
+                                    Command="{Binding ViewModel.ExportRosterCsvCommand}" />
+                            <Button Content="打开样本目录"
+                                    Command="{Binding ViewModel.OpenFacesFolderCommand}" />
+                        </StackPanel>
+                    </StackPanel>
+                </controls3:SettingsExpanderItem>
                 <controls3:SettingsExpanderItem Content="远程录入"
                                                 Description="拉取班主任端上传的照片并导入。班主任上传时填的姓名会自动匹配花名册。"
                                                 IsClickEnabled="True"
                                                 Click="ButtonRemoteEnroll_OnClick" />
-                <controls3:SettingsExpanderItem Content="添加同学"
-                                                Description="先加到花名册，再用摄像头或照片录入人脸。"
-                                                IsClickEnabled="True"
-                                                Click="ButtonAddStudent_OnClick" />
 
-                <!-- 学生列表 -->
+                <!-- 学生列表：点一行选中，右侧开关控制参与考勤 / 今日请假 -->
                 <controls3:SettingsExpanderItem Content="同学列表"
                                                 IsClickEnabled="False"
                                                 IsVisible="{Binding !!ViewModel.Students.Count}">
@@ -196,31 +346,83 @@
                                 Click="ButtonRefreshRoster_OnClick"
                                 VerticalAlignment="Center" />
                     </controls3:SettingsExpanderItem.Footer>
-                    <ItemsControl ItemsSource="{Binding ViewModel.Students}" Margin="0 8 0 0">
-                        <ItemsControl.ItemTemplate>
+                    <ListBox ItemsSource="{Binding ViewModel.Students}"
+                             SelectedItem="{Binding ViewModel.SelectedStudent, Mode=TwoWay}"
+                             Background="Transparent" MaxHeight="300" Margin="0 8 0 0">
+                        <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Border BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                                        BorderThickness="1" CornerRadius="4" Padding="10 8" Margin="0 0 0 6">
-                                    <Grid ColumnDefinitions="*,Auto,Auto">
-                                        <StackPanel Grid.Column="0" Spacing="2">
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                            <TextBlock Text="{Binding ClassName}" FontSize="12" Opacity="0.6"
-                                                       IsVisible="{Binding !!ClassName.Length}" />
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12"
-                                                   Opacity="0.7" Margin="12 0"
-                                                   Text="{Binding FaceCount, StringFormat={}{}{0} 条样本}" />
-                                        <Button Grid.Column="2" VerticalAlignment="Center"
-                                                Theme="{StaticResource TransparentButton}"
+                                <Grid ColumnDefinitions="*,Auto" Margin="0 2">
+                                    <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                        <TextBlock FontSize="12" Opacity="0.6">
+                                            <Run Text="{Binding ClassName}" />
+                                            <Run Text="　" />
+                                            <Run Text="{Binding FaceCount, StringFormat={}{0} 条样本}" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10"
+                                                VerticalAlignment="Center">
+                                        <ToggleSwitch IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                      OnContent="参与" OffContent="不参与"
+                                                      IsCheckedChanged="StudentFlag_OnChanged" />
+                                        <ToggleSwitch IsChecked="{Binding OnLeave, Mode=TwoWay}"
+                                                      OnContent="请假" OffContent="在校"
+                                                      IsCheckedChanged="StudentFlag_OnChanged" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </controls3:SettingsExpanderItem>
+
+                <!-- 选中同学的操作与样本 -->
+                <controls3:SettingsExpanderItem Content="选中同学"
+                                                IsClickEnabled="False"
+                                                IsVisible="{Binding ViewModel.SelectedStudent, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <StackPanel Spacing="10" Margin="0 8 0 0">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="用摄像头录入"
+                                    Command="{Binding ViewModel.EnrollFromCameraCommand}"
+                                    CommandParameter="{Binding ViewModel.SelectedStudent}" />
+                            <Button Content="从照片导入"
+                                    Command="{Binding ViewModel.ImportFromFilesCommand}" />
+                            <Button Content="从样本目录导入"
+                                    Command="{Binding ViewModel.ImportFromFacesFolderCommand}" />
+                            <Button Content="清空样本"
+                                    Command="{Binding ViewModel.ClearStudentFacesCommand}"
+                                    CommandParameter="{Binding ViewModel.SelectedStudent}" />
+                            <Button Content="删除该同学"
+                                    Command="{Binding ViewModel.RemoveStudentCommand}"
+                                    CommandParameter="{Binding ViewModel.SelectedStudent}" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox x:Name="RenameBox" MinWidth="180" Watermark="新姓名" />
+                            <Button Content="改名"
+                                    Command="{Binding ViewModel.RenameSelectedCommand}"
+                                    CommandParameter="{Binding #RenameBox.Text}" />
+                            <TextBlock Text="「从照片导入」按文件名自动匹配同学；照片里有多张脸时会弹窗让你选。"
+                                       VerticalAlignment="Center" FontSize="12" Opacity="0.6"
+                                       TextWrapping="Wrap" MaxWidth="360" />
+                        </StackPanel>
+
+                        <TextBlock Text="人脸样本（删掉录错的那条）" FontWeight="SemiBold" FontSize="12"
+                                   IsVisible="{Binding !!ViewModel.SelectedStudentSamples.Count}" />
+                        <ItemsControl ItemsSource="{Binding ViewModel.SelectedStudentSamples}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0 2">
+                                        <TextBlock Grid.Column="0" Text="{Binding DisplayText}"
+                                                   VerticalAlignment="Center" FontSize="12" />
+                                        <Button Grid.Column="1" Theme="{StaticResource TransparentButton}"
                                                 Content="{ci:FluentIcon &#xE74D;}"
-                                                ToolTip.Tip="删除该同学及其人脸样本"
-                                                Command="{Binding $parent[ItemsControl].DataContext.ViewModel.RemoveStudentCommand}"
+                                                ToolTip.Tip="删除这条样本"
+                                                Command="{Binding $parent[ItemsControl].DataContext.ViewModel.RemoveFaceSampleCommand}"
                                                 CommandParameter="{Binding}" />
                                     </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </controls3:SettingsExpanderItem>
             </controls3:SettingsExpander>
 
