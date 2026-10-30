@@ -81,11 +81,13 @@ public sealed class YuNetDetector : IDisposable
     /// <summary>最多保留几个候选框（与官方默认 5000 一致）。</summary>
     private const int TopK = 5000;
 
-    /// <summary>检测器的工作宽度。YuNet 在这个尺度上速度与精度平衡最好。</summary>
-    public const int WorkWidth = 640;
-
-    /// <summary>检测器的工作高度。</summary>
-    public const int WorkHeight = 480;
+    /// <summary>
+    /// 模型的固定输入边长。官方 opencv_zoo 的 face_detection_yunet_2023mar.onnx
+    /// 把输入写死成了 1×3×640×640（已用 onnxruntime 实测：640×480 等其它尺寸直接报
+    /// INVALID_ARGUMENT，内部 Reshape 层的形状也是按 640×640 导出的），所以任何输入
+    /// 都必须先 letterbox 成这个尺寸再推理。
+    /// </summary>
+    public const int ModelInputSize = 640;
 
     /// <summary>三组 stride。</summary>
     private static readonly int[] Strides = { 8, 16, 32 };
@@ -97,9 +99,6 @@ public sealed class YuNetDetector : IDisposable
     private string _modelPath = "";
     private string _loadPath = "";
     private string _lastError = "";
-
-    /// <summary>按输入尺寸缓存 blob，避免每次检测都重新构造。</summary>
-    private readonly Dictionary<(int W, int H), Mat> _blobCache = new();
 
     public YuNetDetector(ILoggerFactory loggerFactory)
     {
@@ -168,9 +167,6 @@ public sealed class YuNetDetector : IDisposable
                 }
 
                 _net?.Dispose();
-                foreach (var blob in _blobCache.Values) blob.Dispose();
-                _blobCache.Clear();
-
                 _net = net;
                 _modelPath = modelPath;
                 _loadPath = AsciiModelPath.Resolve(modelPath, "face_detection_yunet.onnx", _logger) ?? modelPath;
@@ -211,10 +207,10 @@ public sealed class YuNetDetector : IDisposable
     /// <param name="minFaceWidth">最小人脸宽度，单位是<b>原图</b>像素。</param>
     /// <param name="scoreThreshold">检测置信度阈值。</param>
     /// <remarks>
-    /// 输入会先被<b>等比例</b>缩放到不超过 640×480 的工作尺寸再检测
-    /// （长宽比不变、不补黑边、不拉伸），检出后把框和 5 个关键点一起乘回原图坐标。
-    /// 这与插件原版的行为一致：摄像头换成别的分辨率时不用重建检测器，
-    /// 同一批照片的检测尺度也一致。
+    /// 模型只吃 640×640（见 <see cref="ModelInputSize"/>），所以这里做 <b>letterbox</b>：
+    /// 等比例缩放到 640×640 之内（长宽比不变，右/下补黑边），检出后把框和 5 个关键点
+    /// 除以缩放系数映射回原图坐标。这样无论摄像头是什么分辨率、录入的照片多大，
+    /// 都走同一个输入形状，也和插件原版「同一批照片检测尺度一致」的行为对齐。
     /// </remarks>
     public List<DetectedFace> Detect(Mat bgr, int minFaceWidth = 60, float scoreThreshold = ScoreThreshold)
     {
@@ -232,32 +228,39 @@ public sealed class YuNetDetector : IDisposable
                 return result;
             }
 
-            var target = ComputeWorkSize(bgr.Width, bgr.Height);
-            var scaleX = (double)bgr.Width / target.Width;
-            var scaleY = (double)bgr.Height / target.Height;
-
-            Mat? resized = null;
             try
             {
-                var input = bgr;
-                if (target.Width != bgr.Width || target.Height != bgr.Height)
+                // letterbox：等比例缩到 640 之内（允许最多 4 倍放大，太小的照片再放大
+                // 只会糊成一团），右/下补黑边到正好 640×640。
+                var scale = Math.Min((double)ModelInputSize / bgr.Width, (double)ModelInputSize / bgr.Height);
+                if (scale > 4.0) scale = 4.0;
+                var scaledW = Math.Max(1, (int)Math.Round(bgr.Width * scale));
+                var scaledH = Math.Max(1, (int)Math.Round(bgr.Height * scale));
+
+                using var canvas = new Mat(ModelInputSize, ModelInputSize, MatType.CV_8UC3, Scalar.Black);
+                if (scaledW == bgr.Width && scaledH == bgr.Height)
                 {
-                    resized = new Mat();
-                    var interp = target.Width < bgr.Width ? InterpolationFlags.Area : InterpolationFlags.Linear;
-                    Cv2.Resize(bgr, resized, target, 0, 0, interp);
-                    input = resized;
+                    bgr.CopyTo(canvas[new Rect(0, 0, scaledW, scaledH)]);
+                }
+                else
+                {
+                    using var resized = new Mat();
+                    var interp = scale < 1.0 ? InterpolationFlags.Area : InterpolationFlags.Linear;
+                    Cv2.Resize(bgr, resized, new Size(scaledW, scaledH), 0, 0, interp);
+                    resized.CopyTo(canvas[new Rect(0, 0, scaledW, scaledH)]);
                 }
 
-                // YuNet 要求输入严格等于创建时给定尺寸的图，而 CvDnn 的 forward 是按实际输入算的，
-                // 所以每次都按当前工作尺寸构造 blob。
-                var blob = GetBlob(input, target);
+                // 每次都重新构造 blob——绝对不能按尺寸缓存复用：同一尺寸的第二张图
+                // 会拿到第一张图的像素，录入时整批照片就全变成第一张的检测结果了。
+                using var blob = Dnn.CvDnn.BlobFromImage(canvas, 1.0, new Size(ModelInputSize, ModelInputSize),
+                    new Scalar(0, 0, 0), true, false);
                 _net.SetInput(blob);
 
                 var proposals = new List<(float[] Box, float Score)>();
                 foreach (var stride in Strides)
                 {
-                    var gridW = target.Width / stride;
-                    var gridH = target.Height / stride;
+                    var gridW = ModelInputSize / stride;
+                    var gridH = ModelInputSize / stride;
                     var expected = gridW * gridH;
 
                     using var cls = _net.Forward($"cls_{stride}");
@@ -316,11 +319,11 @@ public sealed class YuNetDetector : IDisposable
                 foreach (var idx in keep)
                 {
                     var p = proposals[idx];
-                    // 还原到原图坐标
+                    // 还原到原图坐标（letterbox 只在右/下补边，原点不动，直接除以缩放系数）
                     var face = new DetectedFace();
                     for (var j = 0; j < 14; j++)
                     {
-                        face.Box[j] = p.Box[j] * (j % 2 == 0 ? (float)scaleX : (float)scaleY);
+                        face.Box[j] = p.Box[j] / (float)scale;
                     }
                     face.Box[14] = p.Score;
 
@@ -341,60 +344,7 @@ public sealed class YuNetDetector : IDisposable
                 _lastError = "人脸检测执行失败：" + e.Message;
                 return result;
             }
-            finally
-            {
-                resized?.Dispose();
-            }
         }
-    }
-
-    /// <summary>
-    /// 取得（或构造）指定尺寸的输入 blob。
-    /// </summary>
-    private Mat GetBlob(Mat input, Size size)
-    {
-        if (_blobCache.TryGetValue((size.Width, size.Height), out var cached))
-        {
-            return cached;
-        }
-
-        // YuNet 的输入是 1x3xHxW，值域 0-255，RGB 通道序（swapRB=true）
-        var blob = Dnn.CvDnn.BlobFromImage(input, 1.0, new Size(size.Width, size.Height),
-            new Scalar(0, 0, 0), true, false);
-        _blobCache[(size.Width, size.Height)] = blob;
-
-        // 缓存别无限涨：常见的也就两三种尺寸。
-        if (_blobCache.Count > 6)
-        {
-            var oldest = _blobCache.Keys.First();
-            _blobCache[oldest].Dispose();
-            _blobCache.Remove(oldest);
-        }
-
-        return blob;
-    }
-
-    /// <summary>
-    /// 计算等比例缩放后的工作尺寸（保持长宽比，不补黑边）。
-    /// </summary>
-    public static Size ComputeWorkSize(int width, int height)
-    {
-        if (width <= 0 || height <= 0)
-        {
-            return new Size(WorkWidth, WorkHeight);
-        }
-
-        var ratio = Math.Min((double)WorkWidth / width, (double)WorkHeight / height);
-
-        // 图片本身就比工作尺寸小，原样使用（放大只会更慢更糊，还可能引入伪影）。
-        if (ratio >= 1.0)
-        {
-            return new Size(width, height);
-        }
-
-        var w = Math.Max(1, (int)Math.Round(width * ratio));
-        var h = Math.Max(1, (int)Math.Round(height * ratio));
-        return new Size(w, h);
     }
 
     /// <summary>
@@ -459,10 +409,10 @@ public sealed class YuNetDetector : IDisposable
 
             try
             {
-                using var blank = new Mat(WorkHeight, WorkWidth, MatType.CV_8UC3,
+                using var blank = new Mat(ModelInputSize, ModelInputSize, MatType.CV_8UC3,
                     new Scalar(128, 128, 128));
                 var faces = Detect(blank);
-                return (true, $"检测器可用（{WorkWidth}×{WorkHeight}，空图检出 {faces.Count} 张脸）。");
+                return (true, $"检测器可用（{ModelInputSize}×{ModelInputSize}，空图检出 {faces.Count} 张脸）。");
             }
             catch (Exception e)
             {
@@ -478,8 +428,6 @@ public sealed class YuNetDetector : IDisposable
         {
             _net?.Dispose();
             _net = null;
-            foreach (var blob in _blobCache.Values) blob.Dispose();
-            _blobCache.Clear();
         }
     }
 }
