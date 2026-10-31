@@ -196,6 +196,21 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
     public bool CanToggleEnabled => IsManagementReady && IsTeacherBound && !IsBusy
         && !_managementService.Policy.ForceFaceAttendance;
 
+    /// <summary>
+    /// 前置条件是否满足（已加入集控且已绑定班主任）。
+    /// 不满足时设置页只显示横幅与总开关，全部配置区块隐藏——与远程监控页同样的门禁形态。
+    /// </summary>
+    public bool PrerequisitesMet => IsManagementReady && IsTeacherBound;
+
+    /// <summary>是否显示模型下载进度条（首次启用或手动载入时）。</summary>
+    [ObservableProperty] private bool _modelDownloadVisible;
+
+    /// <summary>模型下载进度 0~100。</summary>
+    [ObservableProperty] private double _modelDownloadPercent;
+
+    /// <summary>模型下载当前阶段说明。</summary>
+    [ObservableProperty] private string _modelDownloadStage = "";
+
     /// <summary>是否正在执行识别、录入等耗时操作。</summary>
     [ObservableProperty] private bool _isBusy;
 
@@ -559,6 +574,7 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
         {
             PrerequisiteMessage = "人脸考勤仅在加入集控并绑定班主任后可用：请先在「集控」设置中加入集控，并由班主任完成设备绑定。";
             OnPropertyChanged(nameof(CanToggleEnabled));
+            OnPropertyChanged(nameof(PrerequisitesMet));
             return;
         }
 
@@ -568,6 +584,7 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
             ? ""
             : "人脸考勤需要先绑定班主任：请联系班主任在教师端完成本设备的绑定后，再刷新本页。";
         OnPropertyChanged(nameof(CanToggleEnabled));
+        OnPropertyChanged(nameof(PrerequisitesMet));
     }
 
     /// <summary>刷新花名册统计与学生列表。</summary>
@@ -635,6 +652,56 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
         }
 
         _logger.LogInformation("人脸考勤本地开关已设为 {Enabled}", _faceSettings.IsEnabled);
+
+        // 首次启用时模型多半还没下载：后台拉起下载/载入并把进度条显示在设置页上，
+        // 不阻塞开关本身，也打断点的地方不会重复触发（_modelEnsureRunning 去重）。
+        if (_faceSettings.IsEnabled && !_engine.IsReady)
+        {
+            _ = EnsureModelsWithProgressAsync();
+        }
+    }
+
+    private bool _modelEnsureRunning;
+
+    /// <summary>
+    /// 确保模型就绪：需要下载时把进度条（ModelDownloadVisible/Percent/Stage）展示出来。
+    /// 首次启用功能、手动点「载入模型」共用同一条进度显示。
+    /// </summary>
+    private async Task EnsureModelsWithProgressAsync()
+    {
+        if (_modelEnsureRunning) return;
+        _modelEnsureRunning = true;
+        ModelDownloadVisible = true;
+        ModelDownloadPercent = 0;
+        ModelDownloadStage = "正在准备模型…";
+        var ok = false;
+        var message = "";
+        try
+        {
+            var (okResult, messageResult) = await _engine.LoadAsync(
+                new Progress<string>(s => ModelDownloadStage = s),
+                new Progress<double>(p => ModelDownloadPercent = p),
+                _cts.Token).ConfigureAwait(true);
+            ok = okResult;
+            message = messageResult;
+            ModelDownloadStage = ok ? "模型已就绪" : messageResult;
+            if (ok) ModelDownloadPercent = 100;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "启用人脸考勤后的模型下载/载入失败");
+            ModelDownloadStage = $"模型准备失败：{ex.Message}";
+            message = ex.Message;
+        }
+        finally
+        {
+            _modelEnsureRunning = false;
+            ActionMessage = ok ? "" : $"模型准备失败：{message}";
+            RefreshModelStatus();
+            // 成功后进度条停留 2 秒再收起，失败多留几秒让用户看清原因。
+            await Task.Delay(ok ? 2000 : 8000).ConfigureAwait(true);
+            if (!_modelEnsureRunning) ModelDownloadVisible = false;
+        }
     }
 
     /// <summary>立即执行一次考勤。</summary>
@@ -673,18 +740,30 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
         ActionMessage = "";
         try
         {
-            var (ok, message) = await _engine.LoadAsync(null, _cts.Token);
+            // 与首次启用共用同一条进度条：需要下载时用户能看到进度而不是干等。
+            ModelDownloadVisible = true;
+            ModelDownloadPercent = 0;
+            ModelDownloadStage = "正在准备模型…";
+            var (ok, message) = await _engine.LoadAsync(
+                new Progress<string>(s => ModelDownloadStage = s),
+                new Progress<double>(p => ModelDownloadPercent = p),
+                _cts.Token);
             ActionMessage = message;
+            ModelDownloadStage = ok ? "模型已就绪" : message;
+            if (ok) ModelDownloadPercent = 100;
             RefreshModelStatus();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "载入人脸模型失败");
             ActionMessage = $"载入失败：{ex.Message}";
+            ModelDownloadStage = $"载入失败：{ex.Message}";
         }
         finally
         {
             IsBusy = false;
+            await Task.Delay(2000);
+            ModelDownloadVisible = false;
         }
     }
 

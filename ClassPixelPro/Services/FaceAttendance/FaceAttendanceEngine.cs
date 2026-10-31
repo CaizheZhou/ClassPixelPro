@@ -133,9 +133,10 @@ public sealed class FaceAttendanceEngine : IDisposable
     /// </summary>
     public async Task<(bool Ok, string Message)> LoadAsync(
         IProgress<string>? progress = null,
+        IProgress<double>? percent = null,
         CancellationToken cancellationToken = default)
     {
-        var (detectorPath, recognizerPath, error) = await _models.EnsureAsync(progress, cancellationToken)
+        var (detectorPath, recognizerPath, error) = await _models.EnsureAsync(progress, cancellationToken, percent)
             .ConfigureAwait(false);
         if (!string.IsNullOrEmpty(error))
         {

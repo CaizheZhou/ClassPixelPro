@@ -164,7 +164,8 @@ public sealed class FaceModelProvider
     /// </summary>
     public async Task<(string Detector, string Recognizer, string Error)> EnsureAsync(
         IProgress<string>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<double>? percent = null)
     {
         var detector = FindDetector();
         var (recognizer, usedFallback, resolvedModel) = ResolveRecognizerPath();
@@ -178,7 +179,9 @@ public sealed class FaceModelProvider
         if (detector == null && _settings.AllowModelDownload)
         {
             progress?.Report("正在下载人脸检测模型（YuNet，约 230 KB）…");
-            detector = await DownloadAsync(DetectorFileName, DetectorUrls, DetectorMinSize, progress, cancellationToken)
+            // 检测模型只有 230KB，占总量前 5%；识别模型占其余 95%。
+            detector = await DownloadAsync(DetectorFileName, DetectorUrls, DetectorMinSize, progress, cancellationToken,
+                new MappedProgress(percent, 0, 5))
                 .ConfigureAwait(false);
         }
 
@@ -186,7 +189,8 @@ public sealed class FaceModelProvider
         {
             var model = resolvedModel ?? PickAutoModel();
             progress?.Report($"正在下载识别模型 {model.DisplayName}（约 {model.ApproxSizeMb:F0} MB，仅首次需要）…");
-            recognizer = await DownloadAsync(model.FileName, model.Urls, model.MinSize, progress, cancellationToken)
+            recognizer = await DownloadAsync(model.FileName, model.Urls, model.MinSize, progress, cancellationToken,
+                new MappedProgress(percent, 5, 100))
                 .ConfigureAwait(false);
         }
 
@@ -378,12 +382,19 @@ public sealed class FaceModelProvider
         }
     }
 
+    /// <summary>把单文件下载的 0~100 进度线性映射到整体进度区间（如 5~100）。</summary>
+    private sealed class MappedProgress(IProgress<double>? sink, double lo, double hi) : IProgress<double>
+    {
+        public void Report(double value) => sink?.Report(lo + (hi - lo) * Math.Clamp(value, 0, 100) / 100d);
+    }
+
     private async Task<string?> DownloadAsync(
         string fileName,
         string[] urls,
         long minSize,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<double>? percent = null)
     {
         try
         {
@@ -417,10 +428,25 @@ public sealed class FaceModelProvider
                     continue;
                 }
 
+                var total = response.Content.Headers.ContentLength;
+                var lastPct = -1;
                 await using (var source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
                 await using (var destination = File.Create(temp))
                 {
-                    await source.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+                    // 手动分块拷贝并按字节数报进度；总长拿不到时就不报（进度条停在前一格）。
+                    var buffer = new byte[81920];
+                    long written = 0;
+                    int read;
+                    while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+                    {
+                        await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                        written += read;
+                        if (total is > 0 && percent != null)
+                        {
+                            var pct = (int)(100d * written / total.Value);
+                            if (pct != lastPct) { lastPct = pct; percent.Report(pct); }
+                        }
+                    }
                 }
 
                 var length = new FileInfo(temp).Length;

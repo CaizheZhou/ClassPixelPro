@@ -267,7 +267,7 @@ public sealed class AttendanceService : IDisposable
         if (!_engine.IsReady)
         {
             ReportProgress("正在载入人脸模型…", "载入人脸模型…", 5);
-            var (ok, message) = _engine.LoadAsync(null, ct).GetAwaiter().GetResult();
+            var (ok, message) = _engine.LoadAsync(null, null, ct).GetAwaiter().GetResult();
             if (!ok)
             {
                 return Fail(record, message, stopwatch);

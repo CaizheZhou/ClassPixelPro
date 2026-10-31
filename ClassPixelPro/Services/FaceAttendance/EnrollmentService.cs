@@ -881,7 +881,7 @@ public sealed class EnrollmentService : IDisposable
     private async Task<bool> EnsureModelsAsync(CancellationToken ct)
     {
         if (_engine.IsReady) return true;
-        var (ok, _) = await _engine.LoadAsync(null, ct).ConfigureAwait(false);
+        var (ok, _) = await _engine.LoadAsync(null, null, ct).ConfigureAwait(false);
         return ok;
     }
 
