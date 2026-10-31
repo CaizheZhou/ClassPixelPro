@@ -159,7 +159,9 @@ public static class FaceModelCatalog
             MinSize = 5 * 1024 * 1024,
             Urls = new[]
             {
-                // 官网又拍云镜像（国内 CDN），失败再走 HuggingFace 系
+                // GitHub 公开仓库 + gh-proxy 加速（免流量费），官网又拍云为备用，最后 HuggingFace 系
+                "https://gh-proxy.com/https://raw.githubusercontent.com/CaizheZhou/ClassPixelPro-Models/main/face_recognition_sface_2021dec.onnx",
+                "https://gh-proxy.org/https://raw.githubusercontent.com/CaizheZhou/ClassPixelPro-Models/main/face_recognition_sface_2021dec.onnx",
                 "https://class.imzcz.cn/api/public/media/models/face_recognition_sface_2021dec.onnx",
                 "https://hf-mirror.com/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx",
                 "https://huggingface.co/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx",
