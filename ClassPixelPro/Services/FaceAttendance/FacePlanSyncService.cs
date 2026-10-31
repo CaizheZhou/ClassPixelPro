@@ -31,15 +31,19 @@ public sealed class FacePlanSyncService : IDisposable
     private const int PollSeconds = 60;
 
     private readonly ILogger<FacePlanSyncService> _logger;
+    private readonly EnrollmentService _enrollment;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private DateTime _lastAutoPull = DateTime.MinValue;
+    private static readonly TimeSpan AutoPullInterval = TimeSpan.FromMinutes(1);
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private DateTime _lastPoll = DateTime.MinValue;
     private string _lastPlanSignature = "";
 
-    public FacePlanSyncService(ILogger<FacePlanSyncService> logger)
+    public FacePlanSyncService(ILogger<FacePlanSyncService> logger, EnrollmentService enrollment)
     {
         _logger = logger;
+        _enrollment = enrollment;
     }
 
     public bool IsRunning => _loop is { IsCompleted: false };
@@ -93,7 +97,11 @@ public sealed class FacePlanSyncService : IDisposable
                 if (DateTime.Now - _lastPoll > TimeSpan.FromSeconds(PollSeconds))
                 {
                     _lastPoll = DateTime.Now;
-                    await RefreshAsync(ct);
+                    if (await RefreshAsync(ct))
+                    {
+                        // 计划拉成功说明集控在线，顺路把班主任上传的录入照片拉下来。
+                        await AutoPullEnrollmentsAsync(ct);
+                    }
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -197,6 +205,39 @@ public sealed class FacePlanSyncService : IDisposable
         LastPlanDescription = settings?.WeekSchedule.Describe() ?? "";
         _logger.LogInformation("已应用集控下发的考勤计划：{Description}", LastPlanDescription);
         return true;
+    }
+
+    /// <summary>
+    /// 自动拉取班主任端上传的待录入照片并按自动模式导入：
+    /// 班主任上传时已指明姓名，姓名唯一对应花名册且照片单脸的直接归档进花名册，
+    /// 其余留在收件箱等人工确认。每轮计划同步至多跑一次（60 秒节流），
+    /// 没有待录入照片时就是一次廉价的列表请求。
+    /// </summary>
+    private async Task AutoPullEnrollmentsAsync(CancellationToken ct)
+    {
+        if (DateTime.Now - _lastAutoPull < AutoPullInterval) return;
+        _lastAutoPull = DateTime.Now;
+        try
+        {
+            var downloadedFiles = new List<string>();
+            var consumedIds = new List<string>();
+            var (downloaded, _) = await _enrollment
+                .DownloadPendingAsync(null, ct, consumedIds, downloadedFiles)
+                .ConfigureAwait(false);
+            if (downloaded <= 0 || downloadedFiles.Count == 0) return;
+
+            _logger.LogInformation("自动拉取班主任端录入照片 {Count} 张，开始自动导入", downloaded);
+            var summary = await _enrollment
+                .SmartImportAsync(downloadedFiles, null, null, ct)
+                .ConfigureAwait(false);
+            _logger.LogInformation(
+                "自动导入完成：成功 {Ok} 张，待人工确认 {Pending} 张",
+                summary.OkCount, summary.Items.Count(x => !x.Ok));
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning(e, "自动拉取/导入班主任端录入照片失败");
+        }
     }
 
     /// <summary>

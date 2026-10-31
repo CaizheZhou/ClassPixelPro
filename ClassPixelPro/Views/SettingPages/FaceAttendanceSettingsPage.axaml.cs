@@ -42,8 +42,19 @@ public partial class FaceAttendanceSettingsPage : SettingsPageBase
     /// <summary>
     /// 弹出「这张照片是谁？」让用户挑脸与归属同学。窗口被直接关掉时按「跳过」处理。
     /// </summary>
+    /// <remarks>
+    /// SmartImportAsync 在 Task.Run(ConfigureAwait(false)) 之后回调本方法，调用线程是
+    /// 线程池线程；Avalonia 窗口只能在 UI 线程构造（否则 Call from invalid thread），
+    /// 所以先 marshal 回 UI 线程再弹窗。
+    /// </remarks>
     private async Task<SmartDecision> ShowSmartPromptAsync(SmartPrompt prompt)
     {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+                () => ShowSmartPromptAsync(prompt));
+        }
+
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (owner == null) return new SmartDecision { Skip = true };
 

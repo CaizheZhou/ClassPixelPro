@@ -444,9 +444,16 @@ public sealed class EnrollmentService : IDisposable
     /// <param name="ask">提问回调；返回用户的选择。</param>
     /// <param name="progress">进度回调。</param>
     /// <param name="ct">取消令牌。</param>
+    /// <param name="files">待导入的照片路径。</param>
+    /// <param name="ask">
+    /// 提问回调；传 <c>null</c> 走自动模式：姓名唯一匹配且单脸的照片直接归档，
+    /// 其余跳过并留在收件箱。自动模式跑在后台服务里，绝不能碰 UI。
+    /// </param>
+    /// <param name="progress">进度回调。</param>
+    /// <param name="ct">取消令牌。</param>
     public async Task<ImportSummary> SmartImportAsync(
         IReadOnlyList<string> files,
-        Func<SmartPrompt, Task<SmartDecision>> ask,
+        Func<SmartPrompt, Task<SmartDecision>>? ask,
         IProgress<(int Done, int Total, string Current)>? progress = null,
         CancellationToken ct = default)
     {
@@ -528,23 +535,51 @@ public sealed class EnrollmentService : IDisposable
                     .ToList();
 
                 var nameMatch = _roster.MatchByFileName(file);
-                var prompt = new SmartPrompt
-                {
-                    FileName = Path.GetFileName(file),
-                    Index = done,
-                    Total = files.Count,
-                    Thumbnail = EncodeFaceThumbnail(image, target),
-                    FaceCount = ordered.Count,
-                    Faces = faceOptions,
-                    AnnotatedPreview = ordered.Count > 1 ? EncodeAnnotatedPreview(image, ordered) : null,
-                    Matches = candidates,
-                    Best = candidates.FirstOrDefault()?.Student,
-                    BestScore = candidates.FirstOrDefault()?.Score ?? 0d,
-                    FileNameMatch = nameMatch.Student,
-                    FileNameAmbiguous = nameMatch.IsAmbiguous,
-                };
 
-                var decision = await ask(prompt).ConfigureAwait(false);
+                SmartDecision decision;
+                if (ask != null)
+                {
+                    var prompt = new SmartPrompt
+                    {
+                        FileName = Path.GetFileName(file),
+                        Index = done,
+                        Total = files.Count,
+                        Thumbnail = EncodeFaceThumbnail(image, target),
+                        FaceCount = ordered.Count,
+                        Faces = faceOptions,
+                        AnnotatedPreview = ordered.Count > 1 ? EncodeAnnotatedPreview(image, ordered) : null,
+                        Matches = candidates,
+                        Best = candidates.FirstOrDefault()?.Student,
+                        BestScore = candidates.FirstOrDefault()?.Score ?? 0d,
+                        FileNameMatch = nameMatch.Student,
+                        FileNameAmbiguous = nameMatch.IsAmbiguous,
+                    };
+
+                    decision = await ask(prompt).ConfigureAwait(false);
+                }
+                else
+                {
+                    // 自动模式（设备端后台拉取班主任上传的照片）：上传时班主任已经指明了
+                    // 姓名，文件名能唯一对上花名册、且照片里只有一张脸时直接归档；
+                    // 其余情况不猜，留在收件箱等人工在「智能导入」里确认。
+                    var autoOwner = nameMatch.Student;
+                    if (autoOwner == null || nameMatch.IsAmbiguous || ordered.Count != 1)
+                    {
+                        var reason = autoOwner == null
+                            ? "文件名没能唯一对应花名册姓名"
+                            : nameMatch.IsAmbiguous
+                                ? "姓名对应了多位同学"
+                                : "照片里检测到多张人脸";
+                        summary.Items.Add(new ImportItemResult
+                        {
+                            FileName = Path.GetFileName(file), Ok = false,
+                            Message = $"{reason}，已留在收件箱，请在「智能导入」里手动确认",
+                        });
+                        continue;
+                    }
+                    decision = new SmartDecision { Target = autoOwner };
+                }
+
                 if (decision.Cancel)
                 {
                     summary.Cancelled = true;
@@ -680,7 +715,8 @@ public sealed class EnrollmentService : IDisposable
     public async Task<(int Downloaded, string Message)> DownloadPendingAsync(
         IProgress<(int Done, int Total, string Current)>? progress = null,
         CancellationToken ct = default,
-        List<string>? consumedIds = null)
+        List<string>? consumedIds = null,
+        List<string>? downloadedFiles = null)
     {
         var baseUrl = _management.GetManagementBaseUrl();
         var orgId = _management.GetOrganizationId();
@@ -746,6 +782,7 @@ public sealed class EnrollmentService : IDisposable
                     await source.CopyToAsync(dest, ct).ConfigureAwait(false);
                 }
 
+                downloadedFiles?.Add(target);
                 downloaded++;
                 if (item.TryGetProperty("id", out var idEl))
                 {
