@@ -50,6 +50,13 @@ public sealed class FacePlanSyncService : IDisposable
     /// <summary>班主任端请求「立即识别一次」时触发。参数为命令产生时间。</summary>
     public event Action<DateTime>? RunRequested;
 
+    /// <summary>
+    /// 班主任端请求「摄像头拍照录入」时触发：参数为花名册姓名与抓拍张数。
+    /// 处理方返回录入结果（是否成功、新增样本数、给班主任看的话），
+    /// 本服务随命令确认回传给服务端，班主任端据此提示。
+    /// </summary>
+    public event Func<string, int, Task<(bool Ok, int Added, string Message)>>? EnrollCameraRequested;
+
     public void Start()
     {
         if (IsRunning) return;
@@ -142,7 +149,23 @@ public sealed class FacePlanSyncService : IDisposable
                 RunRequested?.Invoke(DateTime.Now);
 
                 // 收到就回传确认，让服务端把这条命令删掉。否则它会一直搭在 face-plans 的返回里，班主任端也无从判断到底执行没执行。
-                await AckCommandAsync(ct).ConfigureAwait(false);
+                await AckCommandAsync(null, ct).ConfigureAwait(false);
+            }
+        }
+
+        // 班主任端的「摄像头拍照录入」命令搭同一班车：设备端抓几张照片当场提取特征归档，
+        // 结果（成功与否、新增样本数）随确认回传，班主任端轮询后即可看到。
+        if (doc.RootElement.TryGetProperty("enroll", out var enrollEl) && enrollEl.ValueKind == JsonValueKind.Object)
+        {
+            var name = enrollEl.TryGetProperty("name", out var nameEl) ? nameEl.GetString() ?? "" : "";
+            var shots = enrollEl.TryGetProperty("shots", out var shotsEl) && shotsEl.TryGetInt32(out var sc) ? sc : 3;
+            var ts = enrollEl.TryGetProperty("ts", out var tsEl) ? tsEl.GetString() ?? "" : "";
+            if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(ts) && ts != _lastEnrollTs)
+            {
+                _lastEnrollTs = ts;
+                _logger.LogInformation("班主任端请求摄像头拍照录入：{Name}（{Shots} 张）", name, shots);
+                var (ok, added, message) = await RunEnrollAsync(name, shots).ConfigureAwait(false);
+                await AckCommandAsync(new CommandAckResult(ok, added, message), ct).ConfigureAwait(false);
             }
         }
 
@@ -181,6 +204,35 @@ public sealed class FacePlanSyncService : IDisposable
     /// </summary>
     private string _lastRunAt = "";
 
+    /// <summary>最近一次已处理的「摄像头拍照录入」命令时间戳，作用同上。</summary>
+    private string _lastEnrollTs = "";
+
+    /// <summary>命令确认携带的结果：随 ack 回传给服务端，供班主任端展示。</summary>
+    private sealed record CommandAckResult(bool Ok, int Added, string Message);
+
+    /// <summary>
+    /// 执行一次「摄像头拍照录入」命令。没有处理方（比如录入服务不可用）时返回失败，
+    /// 结果同样回传，让班主任端立刻知道设备端没做成。
+    /// </summary>
+    private async Task<(bool Ok, int Added, string Message)> RunEnrollAsync(string name, int shots)
+    {
+        var handler = EnrollCameraRequested;
+        if (handler == null)
+        {
+            return (false, 0, "设备端没有响应录入命令（人脸考勤服务可能未运行）。");
+        }
+
+        try
+        {
+            return await handler(name, shots).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "处理摄像头拍照录入命令时出错");
+            return (false, 0, "录入执行出错：" + e.Message);
+        }
+    }
+
     private static string BuildSignature(Dictionary<DayOfWeek, List<TimeSpan>> weekdays)
     {
         return string.Join("|", weekdays
@@ -205,10 +257,11 @@ public sealed class FacePlanSyncService : IDisposable
     }
 
     ///     /// <summary>
-    /// 告诉服务端「立即识别一次」的命令已经收到，可以删掉了。
-    /// 失败只记日志：本地 <c>_lastRunAt</c> 仍能挡住同一条命令被反复触发。
+    /// 告诉服务端命令（立即识别 / 摄像头录入）已经收到，可以删掉了。
+    /// <paramref name="result"/> 非空时把录入结果一并回传，服务端会存下来给班主任端看。
+    /// 失败只记日志：本地 <c>_lastRunAt</c>/<c>_lastEnrollTs</c> 仍能挡住同一条命令被反复触发。
     /// </summary>
-    private async Task AckCommandAsync(CancellationToken ct)
+    private async Task AckCommandAsync(CommandAckResult? result, CancellationToken ct)
     {
         try
         {
@@ -219,7 +272,17 @@ public sealed class FacePlanSyncService : IDisposable
             if (string.IsNullOrEmpty(baseUrl) || string.IsNullOrEmpty(orgId)) return;
 
             var url = $"{baseUrl}/api/mgmt/{orgId}/serverless/face-command-ack?cuid={mgmt.Persist.ClientUniqueId}";
-            using var resp = await _http.PostAsync(url, null, ct).ConfigureAwait(false);
+            using var content = result == null
+                ? null
+                : new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        status = result.Ok ? "ok" : "error",
+                        added = result.Added,
+                        message = result.Message,
+                    }),
+                    System.Text.Encoding.UTF8, "application/json");
+            using var resp = await _http.PostAsync(url, content, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
                 _logger.LogWarning("回传考勤命令确认失败：HTTP {Code}", (int)resp.StatusCode);

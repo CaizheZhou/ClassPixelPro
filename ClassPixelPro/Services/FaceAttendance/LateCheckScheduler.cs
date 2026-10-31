@@ -32,6 +32,8 @@ public sealed class LateCheckScheduler : BackgroundService
     private readonly AttendanceService _attendance;
     private readonly TeacherBindingGate _bindingGate;
     private readonly FacePlanSyncService _planSync;
+    private readonly RosterService _roster;
+    private readonly EnrollmentService _enrollment;
     private readonly ILogger<LateCheckScheduler> _logger;
 
     /// <summary>已经执行过的时刻，键为 <c>yyyyMMdd + HH:mm:ss</c>。</summary>
@@ -47,12 +49,16 @@ public sealed class LateCheckScheduler : BackgroundService
         AttendanceService attendance,
         TeacherBindingGate bindingGate,
         FacePlanSyncService planSync,
+        RosterService roster,
+        EnrollmentService enrollment,
         ILogger<LateCheckScheduler> logger)
     {
         _settings = settings;
         _attendance = attendance;
         _bindingGate = bindingGate;
         _planSync = planSync;
+        _roster = roster;
+        _enrollment = enrollment;
         _logger = logger;
     }
 
@@ -92,6 +98,7 @@ public sealed class LateCheckScheduler : BackgroundService
 
         // 集控下发的计划由专门的同步服务拉取，这里只订阅它的「立即识别」命令。
         _planSync.RunRequested += OnRunRequested;
+        _planSync.EnrollCameraRequested += OnEnrollCameraRequested;
         try
         {
             using var timer = new PeriodicTimer(PollInterval);
@@ -130,6 +137,7 @@ public sealed class LateCheckScheduler : BackgroundService
         finally
         {
             _planSync.RunRequested -= OnRunRequested;
+            _planSync.EnrollCameraRequested -= OnEnrollCameraRequested;
         }
 
         _logger.LogInformation("人脸考勤定时服务已停止");
@@ -155,6 +163,30 @@ public sealed class LateCheckScheduler : BackgroundService
                 _logger.LogError(e, "班主任端触发的人脸考勤执行失败");
             }
         });
+    }
+
+    /// <summary>
+    /// 班主任端点了「摄像头拍照录入」：用教室电脑的摄像头当场抓几张照片，
+    /// 提取特征归档到花名册对应学生名下（花名册没有这个人就新建一条）。
+    /// 返回值随命令确认回传服务端，班主任端据此提示。录入是设置动作，
+    /// 不要求考勤开关已打开，但摄像头被远程监控/录制占用时会如实报错。
+    /// </summary>
+    private async Task<(bool Ok, int Added, string Message)> OnEnrollCameraRequested(string name, int shots)
+    {
+        try
+        {
+            var student = _roster.FindByName(name) ?? _roster.AddStudent(name);
+            var (added, message) = await _enrollment
+                .EnrollFromCameraAsync(student, Math.Clamp(shots, 1, 10), null, CancellationToken.None)
+                .ConfigureAwait(false);
+            _logger.LogInformation("班主任端摄像头录入完成：{Name}，{Message}", name, message);
+            return (added > 0, added, message);
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "班主任端摄像头录入执行失败：{Name}", name);
+            return (false, 0, "录入执行失败：" + e.Message);
+        }
     }
 
     /// <summary>
