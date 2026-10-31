@@ -82,6 +82,13 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
     /// 于是每次启动都判定「超过 N 天没启动」，反复弹出「翻新 ClassPixelPro」提示。
     /// 因此替换前保留本机运行时字段，服务端只覆盖配置类字段。
     /// </para>
+    /// <para>
+    /// 人脸考勤字段同理且更严重：快照多半在人脸考勤功能上线前生成（里面根本没有这些键，
+    /// 反序列化后全是默认值），而人脸考勤深度绑定本机（摄像头索引、模型路径、花名册、
+    /// 判定参数）。集控对它的组织级控制走专门通道（face-plans 下发计划、ForceFaceAttendance
+    /// 策略），不走整份设置快照——所以这里把本机现值整体搬回，快照中的人脸字段一律不生效。
+    /// 用反射按名拷贝，以后新增字段不用记得来这里补。
+    /// </para>
     /// </summary>
     public void ApplyManagedSettings(Settings incoming)
     {
@@ -89,6 +96,11 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
         incoming.LeftRefreshingToastCounts = Settings.LeftRefreshingToastCounts;
         incoming.RefreshingToastIsOnboardingGuide = Settings.RefreshingToastIsOnboardingGuide;
         incoming.ShowRefreshingToastOnNextStart = Settings.ShowRefreshingToastOnNextStart;
+        foreach (var prop in typeof(Settings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (!prop.CanRead || !prop.CanWrite || !prop.Name.Contains("FaceAttendance")) continue;
+            prop.SetValue(incoming, prop.GetValue(Settings));
+        }
         ReplaceSettings(incoming);
     }
 
