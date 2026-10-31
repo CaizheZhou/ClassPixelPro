@@ -41,6 +41,8 @@ public sealed class FaceModelProvider
 
     private static readonly string[] DetectorUrls =
     {
+        // 官网又拍云镜像（国内 CDN，学校网络秒下），失败再走 HuggingFace 系
+        "https://class.imzcz.cn/api/public/media/models/face_detection_yunet_2023mar.onnx",
         "https://hf-mirror.com/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx",
         "https://huggingface.co/opencv/face_detection_yunet/resolve/main/face_detection_yunet_2023mar.onnx",
     };
@@ -205,10 +207,8 @@ public sealed class FaceModelProvider
             $"缺少模型文件：{missingList}\n\n" +
             $"程序已经把这些位置都找过了：\n{searched}\n\n" +
             $"最省事的解决办法：\n" +
-            $"1. 确认安装包完整（Assets\\Models 目录下应该有 2 个 .onnx 文件）；\n" +
-            $"2. 或者点「导入模型文件…」按钮，手动选中 .onnx 文件，程序会自动复制到：\n   {ModelDirectory}\n" +
-            $"3. 学校网络访问不了 HuggingFace，所以「允许联网下载模型」默认是关掉的；" +
-            $"如果确实需要联网下载，请在设置里打开这个开关。";
+            $"1. 保持网络畅通，模型会自动从官网下载（首次使用需要，检测模型约 0.2MB、识别模型约 37MB）；\n" +
+            $"2. 学校网络限制了官网下载时，点「导入模型文件…」按钮，手动选中 .onnx 文件，程序会自动复制到：\n   {ModelDirectory}";
 
         _logger.LogError("人脸模型准备失败：{Message}", message);
         return ("", "", message);

@@ -230,7 +230,9 @@ public class Settings : ObservableRecipient, ILessonControlSettings, INotificati
     private double _faceAttendanceThreshold = 0.363;
     private int _faceAttendanceRetentionDays = 14;
     private bool _faceAttendanceSaveSnapshots = true;
-    private bool _faceAttendanceAllowModelDownload = false;
+    // 默认开启：模型不再随包发布，首次使用需从官网（又拍云 CDN）自动下载；
+// 学校网络就算限制外网，class.imzcz.cn 的国内 CDN 也能访问。
+private bool _faceAttendanceAllowModelDownload = true;
     private int _faceAttendanceJudgeMode = 0;
     private int _faceAttendanceGraceMinutes = 2;
     private string _faceAttendanceWeekScheduleJson = "";

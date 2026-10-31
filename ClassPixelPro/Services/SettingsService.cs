@@ -98,7 +98,11 @@ public class SettingsService(ILogger<SettingsService> Logger, IManagementService
         incoming.ShowRefreshingToastOnNextStart = Settings.ShowRefreshingToastOnNextStart;
         foreach (var prop in typeof(Settings).GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
-            if (!prop.CanRead || !prop.CanWrite || !prop.Name.Contains("FaceAttendance")) continue;
+            // 时间偏移以集控策略（统一时间偏移）为唯一来源：快照里是「某台设备当时」的偏移，
+            // 不保护的话启动时会被快照覆盖，直到下一次策略轮询才被纠正，表现为时对时错。
+            if (!prop.CanRead || !prop.CanWrite) continue;
+            var keep = prop.Name.Contains("FaceAttendance") || prop.Name == "TimeOffsetSeconds";
+            if (!keep) continue;
             prop.SetValue(incoming, prop.GetValue(Settings));
         }
         ReplaceSettings(incoming);

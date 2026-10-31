@@ -291,12 +291,35 @@ public sealed class RecordingService : IDisposable
 
             if (state.Writer == null)
             {
-                var fourcc = VideoWriter.FourCC('m', 'p', '4', 'v');
-                var writer = new VideoWriter(state.TempPath!, fourcc, VideoFps, size);
-                if (!writer.IsOpened())
+                // 优先用 Windows 自带的 H.264 编码器（MediaFoundation）：
+                // 之前的 mp4v（MPEG-4 Part 2）浏览器解不了，录制记录在后台播放是黑屏。
+                // N/KN 精简版系统缺 MediaFoundation 时退回 mp4v（文件仍会上传，只是网页端可能播不了）。
+                VideoWriter? writer = null;
+                try
                 {
-                    writer.Dispose();
-                    throw new InvalidOperationException("无法创建 MP4 视频编码器（mp4v）");
+                    writer = new VideoWriter(state.TempPath!, VideoCaptureAPIs.MSMF,
+                        VideoWriter.FourCC('H', '2', '6', '4'), VideoFps, size, true);
+                    if (!writer.IsOpened())
+                    {
+                        writer.Dispose();
+                        writer = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "H.264（MediaFoundation）编码器不可用，退回 mp4v");
+                    writer?.Dispose();
+                    writer = null;
+                }
+                if (writer == null)
+                {
+                    _logger.LogWarning("录制将使用 mp4v 编码（无 H.264 编码器），网页端可能无法播放");
+                    writer = new VideoWriter(state.TempPath!, VideoWriter.FourCC('m', 'p', '4', 'v'), VideoFps, size);
+                    if (!writer.IsOpened())
+                    {
+                        writer.Dispose();
+                        throw new InvalidOperationException("无法创建 MP4 视频编码器");
+                    }
                 }
                 state.Writer = writer;
                 state.FrameSize = size;

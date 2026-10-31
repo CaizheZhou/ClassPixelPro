@@ -150,8 +150,8 @@ public static class FaceModelCatalog
             FileName = "face_recognition_sface_2021dec.onnx",
             FeatureLength = 128,
             ApproxSizeMb = 37,
-            Description = "OpenCV 官方推荐搭配，随应用包一起发布，不用联网下载。"
-                          + "精度够用、速度快，是默认选择。",
+            Description = "OpenCV 官方推荐搭配，精度够用、速度快，是默认选择。"
+                          + "不再随应用包发布，首次使用时会自动从官网下载（约 37 MB）。",
             IsInsightFaceStyle = false,
             AutoPriority = 10,
             RecommendedThreshold = 0.363,
@@ -159,6 +159,8 @@ public static class FaceModelCatalog
             MinSize = 5 * 1024 * 1024,
             Urls = new[]
             {
+                // 官网又拍云镜像（国内 CDN），失败再走 HuggingFace 系
+                "https://class.imzcz.cn/api/public/media/models/face_recognition_sface_2021dec.onnx",
                 "https://hf-mirror.com/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx",
                 "https://huggingface.co/opencv/face_recognition_sface/resolve/main/face_recognition_sface_2021dec.onnx",
             },
