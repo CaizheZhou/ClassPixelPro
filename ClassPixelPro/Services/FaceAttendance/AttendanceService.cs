@@ -180,6 +180,64 @@ public sealed class AttendanceService : IDisposable
         ProgressPercent = percent < 0 ? 0 : Math.Clamp(percent, 0, 100);
     }
 
+    private int _ensureModelsRunning;
+
+    /// <summary>
+    /// 后台确保识别模型就绪：文件缺失且允许联网下载时，自动下载并载入。
+    /// <para>
+    /// 集控强制开启人脸考勤时，定时服务会在抓拍时间没到之前先调用本方法，
+    /// 把几十 MB 的模型下载提前完成——否则第一次到点执行时才开始下载，
+    /// 课堂上白等几分钟。幂等：模型已就绪、正在准备中或已有一次识别在跑
+    /// （识别流程自己会载入模型）时直接返回。
+    /// </para>
+    /// </summary>
+    public async Task<bool> EnsureModelsReadyAsync(CancellationToken external = default)
+    {
+        if (_engine.IsReady) return true;
+        // 已有一次识别在跑：它的流程里会载入模型，不需要并发再来一份下载
+        if (!await _gate.WaitAsync(0, external).ConfigureAwait(false))
+        {
+            return _engine.IsReady;
+        }
+        try
+        {
+            if (_engine.IsReady) return true;
+            if (Interlocked.Exchange(ref _ensureModelsRunning, 1) == 1) return _engine.IsReady;
+            try
+            {
+                if (!_settings.AllowModelDownload && !_engine.AreModelFilesPresent())
+                {
+                    _logger.LogWarning("人脸考勤需要识别模型但未允许联网下载，跳过后台准备");
+                    return false;
+                }
+                ReportProgress("正在准备识别模型…", "准备识别模型…", 3);
+                var (ok, message) = await _engine.LoadAsync(
+                    new Progress<string>(s => ReportProgress("正在准备识别模型…", s, 5)),
+                    new Progress<double>(p => ReportProgress("正在准备识别模型…", "下载/载入识别模型…", 5 + p * 0.9)),
+                    external).ConfigureAwait(false);
+                if (ok)
+                {
+                    ReportProgress("模型已就绪，等待抓拍时间", "空闲", -1);
+                    _logger.LogInformation("人脸考勤模型已在后台准备就绪");
+                }
+                else
+                {
+                    ReportProgress("模型准备失败，到点执行时会重试", message, -1);
+                    _logger.LogWarning("后台准备人脸模型失败：{Message}", message);
+                }
+                return ok;
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _ensureModelsRunning, 0);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     /// <summary>
     /// 执行一次完整的考勤。
     /// </summary>

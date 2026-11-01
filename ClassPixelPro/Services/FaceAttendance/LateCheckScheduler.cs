@@ -39,6 +39,9 @@ public sealed class LateCheckScheduler : BackgroundService
     /// <summary>已经执行过的时刻，键为 <c>yyyyMMdd + HH:mm:ss</c>。</summary>
     private readonly HashSet<string> _ranKeys = new();
 
+    /// <summary>本轮「应该运行」期间是否已发起过后台模型准备。条件不满足后复位，下次恢复时再试。</summary>
+    private bool _modelsEnsured;
+
     /// <summary>距离上次检查绑定状态的时间。检查本身是一次 HTTP 请求，不能每秒都打。</summary>
     private DateTime _lastBindingCheck = DateTime.MinValue;
     private static readonly TimeSpan BindingCheckInterval = TimeSpan.FromSeconds(60);
@@ -110,7 +113,16 @@ public sealed class LateCheckScheduler : BackgroundService
                     {
                         if (!await ShouldRunAsync(stoppingToken).ConfigureAwait(false))
                         {
+                            _modelsEnsured = false;
                             continue;
+                        }
+
+                        // 功能已生效（开关或集控强制开启）：趁抓拍时间没到先把识别模型下载好，
+                        // 避免第一次到点执行时才开始下载几十 MB 的模型，把考勤卡在下载上。
+                        if (!_modelsEnsured)
+                        {
+                            _modelsEnsured = true;
+                            _ = _attendance.EnsureModelsReadyAsync(stoppingToken);
                         }
 
                         if (TryConsumeTrigger(DateTime.Now, out var target, out var reason))
