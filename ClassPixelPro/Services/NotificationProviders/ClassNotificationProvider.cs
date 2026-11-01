@@ -62,6 +62,8 @@ public class ClassNotificationProvider : NotificationProviderBase<ClassNotificat
 
     private void UpdateTimerTick(object? sender, EventArgs e)
     {
+        // 考试模式静音：不打扰考试
+        if (ClassPixelPro.Services.Management.ExamModeService.IsMuteActive) return;
         var tClassDelta = LessonsService.OnClassLeftTime;
         var settingsSource = GetEffectiveSettings();
 
@@ -198,6 +200,8 @@ public class ClassNotificationProvider : NotificationProviderBase<ClassNotificat
 
     private void OnBreakingTime(object? sender, EventArgs e)
     {
+        // 考试模式静音
+        if (ClassPixelPro.Services.Management.ExamModeService.IsMuteActive) return;
         var settings = GetAttachedSettings();
         var settingsIsClassOffNotificationEnabled = settings?.IsAttachSettingsEnabled == true ?
             settings.IsClassOffNotificationEnabled
@@ -249,6 +253,8 @@ public class ClassNotificationProvider : NotificationProviderBase<ClassNotificat
 
     private void ShowOnClassNotificationCore()
     {
+        // 考试模式静音
+        if (ClassPixelPro.Services.Management.ExamModeService.IsMuteActive) return;
         var settings = GetAttachedSettings();
         var settingsIsClassOnNotificationEnabled = settings?.IsAttachSettingsEnabled == true ? 
             settings.IsClassOnNotificationEnabled 

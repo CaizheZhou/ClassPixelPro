@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
@@ -156,6 +156,9 @@ public partial class App
         // Views
         services.AddTransient<ITopmostEffectPlayer>(x => x.GetRequiredService<TopmostEffectWindow>());
         services.AddSingleton<Views.Controls.MonitorIndicator>();
+        services.AddSingleton<Views.Controls.ExamBadgeWindow>();
+        services.AddSingleton<Services.Management.ExamModeService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Services.Management.ExamModeService>());
         services.AddSingleton<MainWindow>();
         // services.AddTransient<SplashWindowBase, SplashWindow>();
         // services.AddTransient<FeatureDebugWindow>();

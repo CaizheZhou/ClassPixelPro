@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -140,14 +140,37 @@ public partial class CountDownComponent : ComponentBase<CountDownComponentSettin
                 .Subscribe(_ => UpdateStyleClasses());
             UpdateStyleClasses();
             LessonsService.PostMainTimerTicked += LessonsServiceOnPostMainTimerTicked;
+            // 考试模式：生效且要求隐藏时折叠倒计时
+            if (ClassPixelPro.Services.Management.ExamModeService.Instance is { } exam)
+            {
+                exam.StateChanged -= OnExamStateChanged;
+                exam.StateChanged += OnExamStateChanged;
+                ApplyExamVisibility();
+            }
         };
         DetachedFromVisualTree += (_, _) => {
             observer1?.Dispose();
             observer2?.Dispose();
             observer3?.Dispose();
             observer4?.Dispose();
+            if (ClassPixelPro.Services.Management.ExamModeService.Instance is { } examDetach)
+            {
+                examDetach.StateChanged -= OnExamStateChanged;
+            }
             LessonsService.PostMainTimerTicked -= LessonsServiceOnPostMainTimerTicked;
         };
+    }
+
+    private void OnExamStateChanged()
+    {
+        ApplyExamVisibility();
+    }
+
+    private void ApplyExamVisibility()
+    {
+        // 考试模式要求隐藏倒计时：整个组件折叠
+        IsVisible = !(ClassPixelPro.Services.Management.ExamModeService.Instance is
+                      { IsActive: true, HideSchedule: true });
     }
 
     private void UpdateStyleClasses()

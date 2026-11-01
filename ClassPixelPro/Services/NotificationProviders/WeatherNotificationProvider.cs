@@ -60,6 +60,8 @@ public class WeatherNotificationProvider : NotificationProviderBase<WeatherNotif
 
     private void NotificationHostServiceOnOnClass(object? sender, EventArgs e)
     {
+        // 考试模式静音
+        if (ClassPixelPro.Services.Management.ExamModeService.IsMuteActive) return;
         ShowAlertsNotification();
         ShowForecastNotification();
     }

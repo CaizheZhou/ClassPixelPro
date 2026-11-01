@@ -33,6 +33,8 @@ public class AfterSchoolNotificationProvider : NotificationProviderBase<AfterSch
 
     private void OnAfterSchool(object? sender, EventArgs e)
     {
+        // 考试模式静音
+        if (ClassPixelPro.Services.Management.ExamModeService.IsMuteActive) return;
         var settings = (IAfterSchoolNotificationProviderSettingsBase?)GetAttachedSettings() ?? Settings;
         var now = ExactTimeService.GetCurrentLocalDateTime().TimeOfDay;
         var afterSchoolTime = LessonsService.CurrentClassPlan?.ValidTimeLayoutItems.LastOrDefault(i => i.TimeType is 0 or 1)?.EndTime;

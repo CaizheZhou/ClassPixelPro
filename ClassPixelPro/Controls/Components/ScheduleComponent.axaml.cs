@@ -131,8 +131,27 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
         CurrentTimeStateChanged();
     }
 
+    private bool _examHooked;
+
+    private void OnExamStateChanged()
+    {
+        ApplyExamVisibility();
+    }
+
+    private void ApplyExamVisibility()
+    {
+        // 考试模式要求隐藏课表：整个组件折叠（「考试中」由角标窗口提示）
+        IsVisible = !(ClassPixelPro.Services.Management.ExamModeService.Instance is
+                      { IsActive: true, HideSchedule: true });
+    }
+
     private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs visualTreeAttachmentEventArgs)
     {
+        if (_examHooked && ClassPixelPro.Services.Management.ExamModeService.Instance is { } examService)
+        {
+            examService.StateChanged -= OnExamStateChanged;
+            _examHooked = false;
+        }
         if (_scaleHost != null)
         {
             _scaleHost.SizeChanged -= ScaleHostOnSizeChanged;
@@ -174,6 +193,17 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
         UpdateScheduleMaxWidth();
         Dispatcher.UIThread.Post(UpdateScheduleMaxWidth);
         SizeChanged += (_, _) => UpdateScheduleMaxWidth();
+
+        // 考试模式：生效且要求隐藏时折叠课程表
+        if (ClassPixelPro.Services.Management.ExamModeService.Instance is { } exam)
+        {
+            if (!_examHooked)
+            {
+                _examHooked = true;
+                exam.StateChanged += OnExamStateChanged;
+            }
+            ApplyExamVisibility();
+        }
     }
 
     private LayoutTransformControl? _scaleHost;
