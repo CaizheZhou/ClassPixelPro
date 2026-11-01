@@ -149,8 +149,9 @@ public class LessonsListBox : ListBox
     }
 
     /// <summary>
-    /// 把当前选中的课程滚进可视区域并尽量居中。
-    /// 缩放过大导致课程表超出可视宽度时，保证「正在进行的课」始终可见。
+    /// 把当前选中的课程滚进可视区域：已完成、排在当前课前面的课会被滚出视野，
+    /// 当前课靠左显示，其后的课尽量留在可视区域内。当前课已完整可见时不滚动，
+    /// 不打断用户手动滚动。缩放过大导致课程表放不下时，保证当前课始终可见。
     /// </summary>
     public void ScrollCurrentLessonIntoView()
     {
@@ -162,9 +163,15 @@ public class LessonsListBox : ListBox
         if (sv.Content is not Visual content) return;
         var t = visual.TransformToVisual(content);
         if (t == null) return;
-        var itemCenter = t.Value.Transform(new Point(visual.Bounds.Width / 2, 0)).X;
+        const double pad = 8;
+        var itemLeft = t.Value.Transform(new Point(0, 0)).X;
+        var itemRight = itemLeft + visual.Bounds.Width;
+
+        // 当前课已在可视区内（完整或大部分）就不动，避免打断手动滚动
+        if (itemLeft >= sv.Offset.X && itemRight <= sv.Offset.X + sv.Viewport.Width) return;
+
         var maxOffset = sv.Extent.Width - sv.Viewport.Width;
-        var target = Math.Clamp(itemCenter - sv.Viewport.Width / 2, 0, maxOffset);
+        var target = Math.Clamp(itemLeft - pad, 0, maxOffset);
         sv.Offset = new Vector(target, 0);
     }
 }

@@ -204,12 +204,18 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
 
         // 真正的可用宽度基准是窗口宽度（= 屏幕宽）：
         // host.Bounds 是「缩放后的岛栏宽度」，拿它当基准会自引用（岛越宽基准越大），永远约束不住。
-        // 窗口宽是像素；祖先线宽/自身宽度都是缩放前的布局值——按缩放系数换算到同一单位再相减。
+        // 窗口宽是像素；岛栏内部都是缩放前的布局值——按缩放系数换算到同一单位再相减。
         var scale = host.LayoutTransform.Value.M11;
         if (scale <= 0) scale = 1;
         var available = window.Bounds.Width / scale;
-        var otherWidth = Math.Max(0, line.Bounds.Width - Bounds.Width);
-        var max = Math.Max(120, available - otherWidth - 24);
+        // 其余部分宽度 = 岛栏内容根（GridContentRoot：天气/时间等所有组件）− 本组件，
+        // 再加内容根自身的左右 Margin(12 0)。注意不能用 MainWindowLine 的宽度——
+        // 行控件在 ItemsControl 里是拉伸到整个窗口宽的，拿它算会得出「剩余≈0」，
+        // 课程表被压成一条，只剩当前课可见。
+        var islandRoot = line.GetVisualDescendants().OfType<Grid>().FirstOrDefault(g => g.Name == "GridContentRoot");
+        if (islandRoot == null) return;
+        var otherWidth = Math.Max(0, islandRoot.Bounds.Width - Bounds.Width) + 24;
+        var max = Math.Max(160, available - otherWidth - 12);
         if (Math.Abs(max - _lastAppliedMaxWidth) < 0.5) return;
         _lastAppliedMaxWidth = max;
         MainLessonsListBox.MaxWidth = max;
