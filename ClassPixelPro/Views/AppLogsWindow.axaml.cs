@@ -63,10 +63,15 @@ public partial class AppLogsWindow : MyWindow
         InitializeComponent();
         DataContext = this;
 
-        // ViewModel.AppLogService.Log.Subscribe(_ =>
-            // DataGridMain.ScrollIntoView(ViewModel.Logs[^1], DataGridMain.Columns.Last()));
-        // ViewModel.ObservableForProperty(x => x.Logs)
-        //     .Subscribe(_ => );
+        // 新日志到达时自动滚到最后一行：稳定运行期间 Info 级日志稀疏，
+        // 不自动滚动的话窗口看起来就像「很久没有产生日志」。
+        ((System.Collections.Specialized.INotifyCollectionChanged)ViewModel.Logs).CollectionChanged += (_, e) =>
+        {
+            if (e.Action != NotifyCollectionChangedAction.Add || ViewModel.Logs.Count == 0) return;
+            var last = ViewModel.Logs[^1];
+            var column = DataGridMain.Columns.LastOrDefault();
+            if (column != null) DataGridMain.ScrollIntoView(last, column);
+        };
         RefreshView();
     }
 

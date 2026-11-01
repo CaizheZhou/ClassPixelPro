@@ -1459,8 +1459,11 @@ public class ManagementService : ObservableRecipient, IManagementService
             // 客户端时间偏移（秒）：每5秒随设备状态上报，确保班主任端能及时看到最新值
             // （ReportCurrentProfileAsync 仅在 _hasReported 为 false 时上报一次，无法反映后续修改）
             var settingsServiceForOffset = IAppHost.TryGetService<SettingsService>();
+            // 人脸考勤开关随状态上报：班主任端据此拦截未开启设备的考勤入口
+            var faceSettingsForStatus = IAppHost.TryGetService<ClassPixelPro.Services.FaceAttendance.FaceAttendanceSettings>();
             var status = new
             {
+                faceAttendanceEnabled = faceSettingsForStatus?.IsEnabled ?? false,
                 cuid = Persist.ClientUniqueId.ToString(),
                 currentActivity = currentLesson?.ActivityName ?? "空闲",
                 activityType = currentLesson?.ActivityType ?? "idle", // "class"=上课, "break"=课间, "idle"=空闲
