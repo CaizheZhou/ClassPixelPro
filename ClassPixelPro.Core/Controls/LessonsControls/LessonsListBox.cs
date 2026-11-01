@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -6,7 +6,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using ClassPixelPro.Core.Abstractions.Services;
 using ClassPixelPro.Shared;
 using ClassPixelPro.Shared.Abstraction.Models;
@@ -118,5 +121,50 @@ public class LessonsListBox : ListBox
     {
         //ItemContainerStyleSelector = new LessonsListBoxItemContainerStyleSelector(this);
         //ItemTemplateSelector = new LessonsListBoxItemTemplateSelector(this);
+
+        // 课程表横向滚动：滚轮把垂直增量转成水平滚动
+        PointerWheelChanged += OnPointerWheelChanged;
+        // 缩放/宽度变化后，把当前课重新滚回可视区
+        SizeChanged += (_, _) => ScrollCurrentLessonIntoView();
+    }
+
+    private void OnPointerWheelChanged(object? sender, PointerWheelEventArgs e)
+    {
+        var sv = this.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (sv == null || sv.Extent.Width <= sv.Viewport.Width) return;
+        var maxOffset = sv.Extent.Width - sv.Viewport.Width;
+        sv.Offset = new Vector(Math.Clamp(sv.Offset.X - e.Delta.Y * 48, 0, maxOffset), 0);
+        e.Handled = true;
+    }
+
+    /// <inheritdoc />
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs e)
+    {
+        base.OnPropertyChanged(e);
+        // 当前课切换（含换课/换节）时，等布局把容器排好再把新当前课滚进可视区
+        if (e.Property == SelectedItemProperty || e.Property == SelectedIndexProperty)
+        {
+            Dispatcher.UIThread.Post(ScrollCurrentLessonIntoView);
+        }
+    }
+
+    /// <summary>
+    /// 把当前选中的课程滚进可视区域并尽量居中。
+    /// 缩放过大导致课程表超出可视宽度时，保证「正在进行的课」始终可见。
+    /// </summary>
+    public void ScrollCurrentLessonIntoView()
+    {
+        if (SelectedIndex < 0) return;
+        var container = ContainerFromIndex(SelectedIndex);
+        if (container is not Visual visual) return;
+        var sv = this.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (sv == null || sv.Extent.Width <= sv.Viewport.Width) return;
+        if (sv.Content is not Visual content) return;
+        var t = visual.TransformToVisual(content);
+        if (t == null) return;
+        var itemCenter = t.Value.Transform(new Point(visual.Bounds.Width / 2, 0)).X;
+        var maxOffset = sv.Extent.Width - sv.Viewport.Width;
+        var target = Math.Clamp(itemCenter - sv.Viewport.Width / 2, 0, maxOffset);
+        sv.Offset = new Vector(target, 0);
     }
 }

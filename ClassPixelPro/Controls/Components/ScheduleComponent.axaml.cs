@@ -1,11 +1,14 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Reactive.Linq;
 using System.Runtime.CompilerServices;
 using System.Linq;
 using Avalonia;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Avalonia.Controls.Metadata;
 using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
@@ -130,6 +133,11 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
 
     private void OnDetachedFromVisualTree(object? sender, VisualTreeAttachmentEventArgs visualTreeAttachmentEventArgs)
     {
+        if (_scaleHost != null)
+        {
+            _scaleHost.SizeChanged -= ScaleHostOnSizeChanged;
+            _scaleHost = null;
+        }
         _tomorrowScheduleShowModeObserver?.Dispose();
         _hideFinishedClassObserver?.Dispose();
         _showEmptyPlaceholderObserver?.Dispose();
@@ -161,6 +169,46 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
         ShowEmptyPlaceholder = Settings.ShowPlaceholderOnEmptyClassPlan;
         MainLessonsListBox.SelectedIndex = LessonsListBoxSelectedIndex;
         UpdateTomorrowVisibility();
+
+        // 进入可视树后先把课程表宽度压到屏幕内（布局完成后再算一次，结果更准）
+        UpdateScheduleMaxWidth();
+        Dispatcher.UIThread.Post(UpdateScheduleMaxWidth);
+        SizeChanged += (_, _) => UpdateScheduleMaxWidth();
+    }
+
+    private LayoutTransformControl? _scaleHost;
+    private double _lastAppliedMaxWidth;
+
+    private void ScaleHostOnSizeChanged(object? sender, SizeChangedEventArgs e) => UpdateScheduleMaxWidth();
+
+    /// <summary>
+    /// 限制课程表可用宽度。缩放过大时整条岛栏（天气+时间+课程表）会超过屏幕宽度，
+    /// 默认整条对称溢出、课程表被截断。这里把本组件宽度压到
+    /// 「缩放后的可用宽度 − 其余组件宽度」，超出的课程由 LessonsListBox 内部
+    /// 横向滚动承接，并自动把当前课滚进可视区域。
+    /// </summary>
+    private void UpdateScheduleMaxWidth()
+    {
+        var host = this.GetVisualAncestors().OfType<LayoutTransformControl>().FirstOrDefault();
+        var line = this.GetVisualAncestors().OfType<MainWindowLine>().FirstOrDefault();
+        if (host == null || line == null) return;
+        if (!ReferenceEquals(_scaleHost, host))
+        {
+            if (_scaleHost != null) _scaleHost.SizeChanged -= ScaleHostOnSizeChanged;
+            _scaleHost = host;
+            _scaleHost.SizeChanged += ScaleHostOnSizeChanged;
+        }
+
+        // host.Bounds 是缩放后的实际像素宽；祖先线宽/自身宽度都是缩放前的布局值，统一换算
+        var scale = (host.LayoutTransform as MatrixTransform)?.Value.M11 ?? 1;
+        if (scale <= 0) scale = 1;
+        var available = host.Bounds.Width / scale;
+        var otherWidth = Math.Max(0, line.Bounds.Width - Bounds.Width);
+        var max = Math.Max(120, available - otherWidth - 12);
+        if (Math.Abs(max - _lastAppliedMaxWidth) < 0.5) return;
+        _lastAppliedMaxWidth = max;
+        MainLessonsListBox.MaxWidth = max;
+        TomorrowLessonsListBox.MaxWidth = max;
     }
 
     private void CheckTomorrowClassShowMode()

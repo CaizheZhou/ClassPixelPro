@@ -1,4 +1,4 @@
-<ResourceDictionary xmlns="https://github.com/avaloniaui"
+﻿<ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:lessonsControls="clr-namespace:ClassPixelPro.Core.Controls.LessonsControls"
                     xmlns:profile="clr-namespace:ClassPixelPro.Shared.Models.Profile;assembly=ClassPixelPro.Shared"
@@ -193,7 +193,12 @@
         </Setter>
         <Setter Property="Template">
             <ControlTemplate TargetType="lessonsControls:LessonsListBox">
-                <ItemsPresenter ItemsPanel="{TemplateBinding ItemsPanel}"/>
+                <!-- 课程表横向排布：内容超出可用宽度时内部横向滚动（滚动条隐藏，滚轮/自动跟随均可滚动），
+                     保证「正在进行的课」始终能滚进可视区域，而不是把整条岛栏顶出屏幕。 -->
+                <ScrollViewer HorizontalScrollBarVisibility="Hidden"
+                              VerticalScrollBarVisibility="Disabled">
+                    <ItemsPresenter ItemsPanel="{TemplateBinding ItemsPanel}"/>
+                </ScrollViewer>
             </ControlTemplate>
         </Setter>
     </ControlTheme>
