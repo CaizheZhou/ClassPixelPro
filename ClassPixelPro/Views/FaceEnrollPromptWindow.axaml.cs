@@ -174,14 +174,16 @@ public partial class FaceEnrollPromptWindow : MyWindow
     public FaceEnrollPromptWindow()
     {
         Vm = new FaceEnrollPromptViewModel();
-        DataContext = Vm;
+        // XAML 里所有绑定都带 Vm. 前缀，DataContext 必须是窗口本身；
+        // 之前错设成 Vm，导致整个弹窗的预览、脸列表、归属下拉全部绑定失败显示为空。
+        DataContext = this;
         InitializeComponent();
     }
 
     public FaceEnrollPromptWindow(SmartPrompt prompt, IReadOnlyList<Student> candidates) : this()
     {
         Vm = new FaceEnrollPromptViewModel(prompt, candidates);
-        DataContext = Vm;
+        DataContext = this;
         Title = $"这张照片是谁？（{prompt.Index}/{prompt.Total}）";
     }
 
