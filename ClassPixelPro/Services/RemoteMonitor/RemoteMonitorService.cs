@@ -413,7 +413,8 @@ public sealed class RemoteMonitorService : IDisposable
         }
 
         // 截图请求视为短期活跃查看：递增计数并重置 5 秒后递减的计时器
-        RegisterScreenshotActive();
+        // （集控后台带 viewer=admin 的截图不计入，指示器不亮）
+        RegisterScreenshotActive(context.Request.Query["viewer"].ToString() != "admin");
 
         var jpeg = _screenCapture.CaptureScreenAsJpeg(80);
         context.Response.ContentType = "image/jpeg";
@@ -425,8 +426,9 @@ public sealed class RemoteMonitorService : IDisposable
     /// 注册截图请求为短期活跃查看者。
     /// 首次请求时递增活跃计数，5 秒内若无新请求则递减。
     /// </summary>
-    private void RegisterScreenshotActive()
+    private void RegisterScreenshotActive(bool countViewer = true)
     {
+        if (!countViewer) return;
         lock (this)
         {
             if (!_screenshotActiveRegistered)
@@ -516,6 +518,9 @@ public sealed class RemoteMonitorService : IDisposable
     {
         using var ws = await context.WebSockets.AcceptWebSocketAsync();
 
+        // 集控后台的查看请求带 viewer=admin：不计入活跃查看者，「监控中」指示器不亮。
+        var countViewer = context.Request.Query["viewer"].ToString() != "admin";
+
         // 按连接来源分档码率：
         // - 局域网直连：带宽充足（通常 100Mbps+），提高画质上限与帧率下限
         //   (maxQuality=85, minQuality=60, minFps=20, maxFps=30)
@@ -527,9 +532,12 @@ public sealed class RemoteMonitorService : IDisposable
         _logger.LogInformation("摄像头 WebSocket 已连接，来源 {Ip}（{Type}）",
             remoteIp, isLan ? "局域网" : "tunnel");
 
-        // 注册活跃查看者
-        Interlocked.Increment(ref _activeViewerCount);
-        ActiveViewerChanged?.Invoke();
+        // 注册活跃查看者（管理员观看不计入）
+        if (countViewer)
+        {
+            Interlocked.Increment(ref _activeViewerCount);
+            ActiveViewerChanged?.Invoke();
+        }
 
         // 自适应码率参数。
         // 延迟累积机制：SendAsync 返回只代表数据写入 TCP 发送缓冲（默认数百 KB），
@@ -629,7 +637,10 @@ public sealed class RemoteMonitorService : IDisposable
                 currentFps, jpegQuality, totalBytesSent / 1048576.0);
             // 最后一个查看者断开后释放摄像头：班主任关闭页面后设备摄像头不应继续被占用。
             // 重连时 CaptureFrameAsJpeg 会自动重新打开（首次打开慢 1-3 秒，可接受）。
-            var newCount = Interlocked.Decrement(ref _activeViewerCount);
+            // 管理员观看未计入计数：读当前值即可，只要没有其他查看者就释放摄像头。
+            var newCount = countViewer
+                ? Interlocked.Decrement(ref _activeViewerCount)
+                : Interlocked.CompareExchange(ref _activeViewerCount, 0, 0);
             if (newCount < 0)
             {
                 Interlocked.Exchange(ref _activeViewerCount, 0);
@@ -759,9 +770,14 @@ public sealed class RemoteMonitorService : IDisposable
         // 新连接建立时清空上一次传话的残留缓冲
         _audioPlayback.ClearBuffer();
 
-        // 注册活跃查看者
-        Interlocked.Increment(ref _activeViewerCount);
-        ActiveViewerChanged?.Invoke();
+        // 集控后台的连接带 viewer=admin 时不计入活跃查看者
+        var countViewer = context.Request.Query["viewer"].ToString() != "admin";
+        // 注册活跃查看者（管理员观看不计入）
+        if (countViewer)
+        {
+            Interlocked.Increment(ref _activeViewerCount);
+            ActiveViewerChanged?.Invoke();
+        }
 
         // 大消息分片拼接：教师端可能一次发送整段录音（数百 KB），
         // 必须按 EndOfMessage 拼完整后再播放，否则 PCM 数据虽然连续但
@@ -814,14 +830,17 @@ public sealed class RemoteMonitorService : IDisposable
             _logger.LogInformation("音频 WebSocket 已断开");
             // 注意：这里不释放摄像头——传话与摄像头是两条独立 WS，
             // 原实现在传话结束时误释放摄像头，导致远程画面中断。
-            // 注销活跃查看者
-            var newCount = Interlocked.Decrement(ref _activeViewerCount);
-            if (newCount < 0)
+            // 注销活跃查看者（管理员观看未计入，无需注销）
+            if (countViewer)
             {
-                // 防止计数变负（不应该发生但防御性编程）
-                Interlocked.Exchange(ref _activeViewerCount, 0);
+                var newCount = Interlocked.Decrement(ref _activeViewerCount);
+                if (newCount < 0)
+                {
+                    // 防止计数变负（不应该发生但防御性编程）
+                    Interlocked.Exchange(ref _activeViewerCount, 0);
+                }
+                ActiveViewerChanged?.Invoke();
             }
-            ActiveViewerChanged?.Invoke();
         }
     }
 
