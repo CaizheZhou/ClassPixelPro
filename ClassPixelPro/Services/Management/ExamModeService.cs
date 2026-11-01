@@ -17,7 +17,7 @@ namespace ClassPixelPro.Services.Management;
 
 /// <summary>
 /// 考试模式服务：每 60 秒从集控拉取对本机生效的考试计划，按本地时间评估是否处于考试窗口。
-/// 生效期间按计划要求隐藏课表/倒计时、静音自动提醒（远程喊话不禁用），并显示「考试中」角标。
+/// 生效期间按计划要求隐藏课表/倒计时、静音自动提醒（远程喊话不禁用）。
 /// 考试计划条目由后台按组织统一作息解析成具体起止时刻，这里无需再查作息表。
 /// </summary>
 public class ExamModeService : Microsoft.Extensions.Hosting.BackgroundService
@@ -145,11 +145,7 @@ public class ExamModeService : Microsoft.Extensions.Hosting.BackgroundService
         MuteReminders = mute;
         _logger.LogInformation("考试模式状态变更：{State}（{Name}，隐藏课表={Hide}，静音提醒={Mute}）",
             isActive ? "进入考试窗口" : "考试结束", name, hide, mute);
-        Dispatcher.UIThread.Post(() =>
-        {
-            StateChanged?.Invoke();
-            UpdateBadge();
-        });
+        Dispatcher.UIThread.Post(() => StateChanged?.Invoke());
     }
 
     private static bool IsPlanActiveNow(JsonElement plan, DateTime now)
@@ -195,31 +191,5 @@ public class ExamModeService : Microsoft.Extensions.Hosting.BackgroundService
         return h * 60 + m;
     }
 
-    // ===== 「考试中」角标窗口 =====
-    private ClassPixelPro.Views.Controls.ExamBadgeWindow? _badge;
-
-    private void UpdateBadge()
-    {
-        var dispatcher = Dispatcher.UIThread;
-        if (dispatcher == null) return;
-        _ = dispatcher.InvokeAsync(() =>
-        {
-            try
-            {
-                if (IAppHost.TryGetService<ClassPixelPro.Views.Controls.ExamBadgeWindow>() is not { } badge) return;
-                _badge = badge;
-                if (!IsActive)
-                {
-                    if (badge.IsVisible) badge.Hide();
-                    return;
-                }
-                badge.ShowExam(string.IsNullOrEmpty(ExamName) ? "考试中" : $"考试中：{ExamName}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "更新考试角标失败");
-            }
-        });
-    }
-
 }
+
