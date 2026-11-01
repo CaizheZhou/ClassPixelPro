@@ -214,11 +214,11 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
     /// <summary>模型文件是否还没就绪（未下载且本地找不到）。为真时设置页只显示下载/导入卡片，其余配置隐藏。</summary>
     [ObservableProperty] private bool _modelFilesMissing = true;
 
-    /// <summary>完整配置区是否可见（前置条件满足且模型文件就绪）。</summary>
-    public bool ShowFullConfig => PrerequisitesMet && !ModelFilesMissing;
+    /// <summary>完整配置区是否可见（前置条件满足、模型文件就绪、且功能开关已打开）。</summary>
+    public bool ShowFullConfig => PrerequisitesMet && !ModelFilesMissing && _faceSettings.IsEnabled;
 
-    /// <summary>模型准备卡片是否可见（前置条件满足但模型文件缺失）。</summary>
-    public bool ShowModelSetupCard => PrerequisitesMet && ModelFilesMissing;
+    /// <summary>模型准备卡片是否可见（前置条件满足、功能开关已打开，但模型文件缺失）。</summary>
+    public bool ShowModelSetupCard => PrerequisitesMet && ModelFilesMissing && _faceSettings.IsEnabled;
 
     partial void OnModelFilesMissingChanged(bool value)
     {
@@ -527,7 +527,7 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
 
         // 模型还没就绪时主动开始准备（下载+载入），设置页会显示实时进度条；
         // 用户不点任何按钮也能看到下载进度，而不是面对一堆不可用的配置。
-        if (PrerequisitesMet && _faceSettings.AllowModelDownload && !_engine.IsReady)
+        if (PrerequisitesMet && _faceSettings.IsEnabled && _faceSettings.AllowModelDownload && !_engine.IsReady)
         {
             _ = EnsureModelsWithProgressAsync();
         }
@@ -660,8 +660,8 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
         if (!_faceSettings.IsEnabled && _managementService.Policy.ForceFaceAttendance)
         {
             _faceSettings.IsEnabled = true;
-            OnPropertyChanged(nameof(CanToggleEnabled));
             _logger.LogInformation("人脸考勤被集控策略强制开启，已忽略本地关闭操作");
+            SaveAndNotifyToggle();
             return;
         }
 
@@ -673,12 +673,17 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
                 _faceSettings.IsEnabled = false;
                 _logger.LogWarning("人脸考勤开启被拦截：前置条件不满足（集控={Mgmt}，绑定={Bound}）",
                     IsManagementReady, IsTeacherBound);
-                OnPropertyChanged(nameof(CanToggleEnabled));
+                SaveAndNotifyToggle();
                 return;
             }
         }
 
         _logger.LogInformation("人脸考勤本地开关已设为 {Enabled}", _faceSettings.IsEnabled);
+
+        // 开关状态立即落盘：不落盘的话，自动更新重启/异常退出会读回旧状态
+        // （表现为「明明关了，重启后又开了」，设备状态上报也跟着发旧值，
+        // 班主任端因此仍能进入人脸考勤页面）。
+        SaveAndNotifyToggle();
 
         // 首次启用时模型多半还没下载：后台拉起下载/载入并把进度条显示在设置页上，
         // 不阻塞开关本身，也打断点的地方不会重复触发（_modelEnsureRunning 去重）。
@@ -686,6 +691,15 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
         {
             _ = EnsureModelsWithProgressAsync();
         }
+    }
+
+    /// <summary>开关变化后：立即写入配置文件，并刷新配置区/模型卡片的可见性。</summary>
+    private void SaveAndNotifyToggle()
+    {
+        _settingsService.SaveSettings("人脸考勤开关变更");
+        OnPropertyChanged(nameof(CanToggleEnabled));
+        OnPropertyChanged(nameof(ShowFullConfig));
+        OnPropertyChanged(nameof(ShowModelSetupCard));
     }
 
     private bool _modelEnsureRunning;
