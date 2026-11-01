@@ -1047,15 +1047,28 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
     }
 
     /// <summary>
+    /// 拿用于文件选择的窗口。本应用的主窗口只是 Show 出来，桌面生命周期的
+    /// MainWindow 从未被赋值（一直是 null），所以要回退到 Application.MainWindow，
+    /// 否则所有文件选择都会误报「当前环境不支持文件选择」。
+    /// </summary>
+    private static Avalonia.Controls.Window? GetPickerWindow()
+    {
+        if (Avalonia.Application.Current?.ApplicationLifetime
+            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return desktop.MainWindow ?? (Avalonia.Application.Current as ClassPixelPro.Core.AppBase)?.MainWindow;
+        }
+        return (Avalonia.Application.Current as ClassPixelPro.Core.AppBase)?.MainWindow;
+    }
+
+    /// <summary>
     /// 从照片文件批量导入。文件名里带人名的自动匹配，认不出的走智能导入提问。
     /// </summary>
     [RelayCommand]
     private async Task ImportFromFilesAsync()
     {
         if (IsBusy) return;
-        var topLevel = Avalonia.Application.Current?
-            .ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
-            ? desktop.MainWindow : null;
+        var topLevel = GetPickerWindow();
         if (topLevel?.StorageProvider == null)
         {
             ActionMessage = "当前环境不支持文件选择。";
@@ -1091,9 +1104,7 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
     {
         if (IsBusy) return;
         var dir = FaceAttendancePaths.EnsureDirectory(FaceAttendancePaths.RootFolder, "inbox");
-        var topLevel = Avalonia.Application.Current?
-            .ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
-            ? desktop.MainWindow : null;
+        var topLevel = GetPickerWindow();
         if (topLevel?.StorageProvider == null)
         {
             ActionMessage = "当前环境不支持文件选择。";
@@ -1283,9 +1294,7 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
     private async Task ImportModelFileAsync()
     {
         if (IsBusy) return;
-        var topLevel = Avalonia.Application.Current?
-            .ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop
-            ? desktop.MainWindow : null;
+        var topLevel = GetPickerWindow();
         if (topLevel?.StorageProvider == null)
         {
             ActionMessage = "当前环境不支持文件选择。";
