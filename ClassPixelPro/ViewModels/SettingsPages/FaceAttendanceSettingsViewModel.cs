@@ -211,6 +211,21 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
     /// <summary>模型下载当前阶段说明。</summary>
     [ObservableProperty] private string _modelDownloadStage = "";
 
+    /// <summary>模型文件是否还没就绪（未下载且本地找不到）。为真时设置页只显示下载/导入卡片，其余配置隐藏。</summary>
+    [ObservableProperty] private bool _modelFilesMissing = true;
+
+    /// <summary>完整配置区是否可见（前置条件满足且模型文件就绪）。</summary>
+    public bool ShowFullConfig => PrerequisitesMet && !ModelFilesMissing;
+
+    /// <summary>模型准备卡片是否可见（前置条件满足但模型文件缺失）。</summary>
+    public bool ShowModelSetupCard => PrerequisitesMet && ModelFilesMissing;
+
+    partial void OnModelFilesMissingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowFullConfig));
+        OnPropertyChanged(nameof(ShowModelSetupCard));
+    }
+
     /// <summary>是否正在执行识别、录入等耗时操作。</summary>
     [ObservableProperty] private bool _isBusy;
 
@@ -510,6 +525,13 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
         RefreshModelStatus();
         SyncAttendanceState();
 
+        // 模型还没就绪时主动开始准备（下载+载入），设置页会显示实时进度条；
+        // 用户不点任何按钮也能看到下载进度，而不是面对一堆不可用的配置。
+        if (PrerequisitesMet && _faceSettings.AllowModelDownload && !_engine.IsReady)
+        {
+            _ = EnsureModelsWithProgressAsync();
+        }
+
         SelectedResolution = ResolutionOptions.FirstOrDefault(o =>
             o.Width == _faceSettings.CaptureWidth && o.Height == _faceSettings.CaptureHeight)
             ?? ResolutionOptions.FirstOrDefault(o => o.Width == 1280);
@@ -575,6 +597,8 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
             PrerequisiteMessage = "人脸考勤仅在加入集控并绑定班主任后可用：请先在「集控」设置中加入集控，并由班主任完成设备绑定。";
             OnPropertyChanged(nameof(CanToggleEnabled));
             OnPropertyChanged(nameof(PrerequisitesMet));
+        OnPropertyChanged(nameof(ShowFullConfig));
+        OnPropertyChanged(nameof(ShowModelSetupCard));
             return;
         }
 
@@ -585,6 +609,8 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
             : "人脸考勤需要先绑定班主任：请联系班主任在教师端完成本设备的绑定后，再刷新本页。";
         OnPropertyChanged(nameof(CanToggleEnabled));
         OnPropertyChanged(nameof(PrerequisitesMet));
+        OnPropertyChanged(nameof(ShowFullConfig));
+        OnPropertyChanged(nameof(ShowModelSetupCard));
     }
 
     /// <summary>刷新花名册统计与学生列表。</summary>
@@ -609,6 +635,7 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
     public void RefreshModelStatus()
     {
         ModelReady = _engine.IsReady;
+        ModelFilesMissing = !_engine.AreModelFilesPresent();
         ModelStatus = _engine.IsReady ? "已载入" : "未载入";
         RecognizerDisplay = _engine.RecognizerDisplayName;
         EffectiveThreshold = _engine.EffectiveThreshold;
@@ -740,6 +767,12 @@ public partial class FaceAttendanceSettingsViewModel : ObservableRecipient
         ActionMessage = "";
         try
         {
+            // 模型缺失但禁用了联网下载时，用户显式点「下载/载入」视为同意联网下载。
+            if (!_faceSettings.AllowModelDownload && !_engine.AreModelFilesPresent())
+            {
+                AllowModelDownload = true;
+            }
+
             // 与首次启用共用同一条进度条：需要下载时用户能看到进度而不是干等。
             ModelDownloadVisible = true;
             ModelDownloadPercent = 0;

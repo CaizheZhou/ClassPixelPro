@@ -159,6 +159,13 @@ public sealed class FaceModelProvider
     /// </summary>
     public string? FindDetector() => FindExisting(_settings.DetectorModelPath, new[] { DetectorFileName });
 
+    /// <summary>检测与识别模型文件是否都已在本地（只查找，不触发下载）。</summary>
+    public bool AreFilesPresent()
+    {
+        if (FindDetector() == null) return false;
+        return ResolveRecognizerPath().Path != null;
+    }
+
     /// <summary>
     /// 确保两个模型文件都存在。返回（检测模型路径, 识别模型路径, 错误信息）。
     /// </summary>

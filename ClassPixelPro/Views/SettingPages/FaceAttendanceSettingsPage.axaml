@@ -79,8 +79,27 @@
                 </StackPanel>
             </Border>
 
-            <!-- ============ 以下配置区块仅在「已加入集控且已绑定班主任」时显示（与远程监控同门禁） ============ -->
-            <StackPanel IsVisible="{Binding ViewModel.PrerequisitesMet}">
+            <!-- 模型准备卡片：前置条件已满足但模型文件尚未就绪时，只提供下载/导入入口 -->
+            <StackPanel IsVisible="{Binding ViewModel.ShowModelSetupCard}" Spacing="8">
+                <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
+                        CornerRadius="8" Padding="16 12">
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ci:FluentIcon Glyph="&#xE945;" FontSize="16" VerticalAlignment="Center" />
+                            <TextBlock Text="识别模型尚未就绪" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="首次使用人脸考勤需要先准备识别模型（约 37MB，只需下载一次，之后全部离线运行）。进入本页时会自动开始下载；学校网络连不上模型源时，也可以用 U 盘把 .onnx 模型文件拷过来从文件导入。"
+                                   TextWrapping="Wrap" Opacity="0.8" FontSize="12" Margin="24 0 0 0" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="24 0 0 0">
+                            <Button Content="⬇ 下载并载入模型" Click="ButtonLoadModels_OnClick" />
+                            <Button Content="从文件导入模型" Click="ButtonImportModel_OnClick" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- ============ 以下配置区块仅在「已加入集控且已绑定班主任」且模型文件就绪时显示 ============ -->
+            <StackPanel IsVisible="{Binding ViewModel.ShowFullConfig}">
 
             <!-- 运行状态 -->
             <controls3:SettingsExpander IconSource="{ci:FluentIconSource &#xE7B3;}"

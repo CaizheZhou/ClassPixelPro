@@ -180,6 +180,9 @@ public sealed class FaceAttendanceEngine : IDisposable
         return (true, "模型已就绪");
     }
 
+    /// <summary>检测与识别模型文件是否都已在本地（只查找，不触发下载）。缺失时设置页只显示下载/导入入口。</summary>
+    public bool AreModelFilesPresent() => _models.AreFilesPresent();
+
     /// <summary>
     /// 在图片中检测人脸并提取特征。
     /// </summary>
