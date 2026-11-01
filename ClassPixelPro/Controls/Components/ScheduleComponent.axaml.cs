@@ -198,13 +198,18 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
             _scaleHost = host;
             _scaleHost.SizeChanged += ScaleHostOnSizeChanged;
         }
+        // 窗口随缩放变化会先改 LayoutTransformControl 的尺寸，从它触发重算
+        var window = VisualRoot as Window;
+        if (window == null) return;
 
-        // host.Bounds 是缩放后的实际像素宽；祖先线宽/自身宽度都是缩放前的布局值，统一换算
-        var scale = (host.LayoutTransform as MatrixTransform)?.Value.M11 ?? 1;
+        // 真正的可用宽度基准是窗口宽度（= 屏幕宽）：
+        // host.Bounds 是「缩放后的岛栏宽度」，拿它当基准会自引用（岛越宽基准越大），永远约束不住。
+        // 窗口宽是像素；祖先线宽/自身宽度都是缩放前的布局值——按缩放系数换算到同一单位再相减。
+        var scale = host.LayoutTransform.Value.M11;
         if (scale <= 0) scale = 1;
-        var available = host.Bounds.Width / scale;
+        var available = window.Bounds.Width / scale;
         var otherWidth = Math.Max(0, line.Bounds.Width - Bounds.Width);
-        var max = Math.Max(120, available - otherWidth - 12);
+        var max = Math.Max(120, available - otherWidth - 24);
         if (Math.Abs(max - _lastAppliedMaxWidth) < 0.5) return;
         _lastAppliedMaxWidth = max;
         MainLessonsListBox.MaxWidth = max;
