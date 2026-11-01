@@ -189,10 +189,11 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
         MainLessonsListBox.SelectedIndex = LessonsListBoxSelectedIndex;
         UpdateTomorrowVisibility();
 
-        // 进入可视树后先把课程表宽度压到屏幕内（布局完成后再算一次，结果更准）
+        // 进入可视树后先把课程表宽度压到屏幕内（布局完成后再算一次，结果更准）。
+        // 只随窗口/缩放变化重算——不挂自身 SizeChanged：当前课的倒计时文本每秒变宽，
+        // 会引发「尺寸变化→重设宽度→再布局」的每秒循环，表现为整条岛栏每秒闪烁。
         UpdateScheduleMaxWidth();
         Dispatcher.UIThread.Post(UpdateScheduleMaxWidth);
-        SizeChanged += (_, _) => UpdateScheduleMaxWidth();
 
         // 考试模式：生效且要求隐藏时折叠课程表
         if (ClassPixelPro.Services.Management.ExamModeService.Instance is { } exam)
@@ -244,9 +245,24 @@ public partial class ScheduleComponent : ComponentBase<LessonControlSettings>, I
         // 课程表被压成一条，只剩当前课可见。
         var islandRoot = line.GetVisualDescendants().OfType<Grid>().FirstOrDefault(g => g.Name == "GridContentRoot");
         if (islandRoot == null) return;
+
+        // 未溢出（岛栏自然宽度没有超过屏幕）时直接移除宽度限制，恢复自然布局：
+        // 上限值一旦参与布局，就会和每秒变化的倒计时文本互相影响，造成反复排版闪烁。
+        if (islandRoot.Bounds.Width <= available)
+        {
+            if (_lastAppliedMaxWidth != 0)
+            {
+                _lastAppliedMaxWidth = 0;
+                MainLessonsListBox.MaxWidth = double.PositiveInfinity;
+                TomorrowLessonsListBox.MaxWidth = double.PositiveInfinity;
+            }
+            return;
+        }
+
         var otherWidth = Math.Max(0, islandRoot.Bounds.Width - Bounds.Width) + 24;
         var max = Math.Max(160, available - otherWidth - 12);
-        if (Math.Abs(max - _lastAppliedMaxWidth) < 0.5) return;
+        // 迟滞：差异小于 8px 不重设，避免临界状态下来回横跳
+        if (_lastAppliedMaxWidth != 0 && Math.Abs(max - _lastAppliedMaxWidth) < 8) return;
         _lastAppliedMaxWidth = max;
         MainLessonsListBox.MaxWidth = max;
         TomorrowLessonsListBox.MaxWidth = max;

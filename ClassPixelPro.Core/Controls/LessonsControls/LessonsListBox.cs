@@ -124,8 +124,8 @@ public class LessonsListBox : ListBox
 
         // 课程表横向滚动：滚轮把垂直增量转成水平滚动
         PointerWheelChanged += OnPointerWheelChanged;
-        // 缩放/宽度变化后，把当前课重新滚回可视区
-        SizeChanged += (_, _) => ScrollCurrentLessonIntoView();
+        // 注意：不要在 SizeChanged 里做自动滚动——当前课的倒计时文本每秒都在变宽，
+        // 尺寸跟着每秒变化，滚动会跟着每秒吸附，表现为整条岛栏每秒「闪/卡」一下。
     }
 
     private void OnPointerWheelChanged(object? sender, PointerWheelEventArgs e)
