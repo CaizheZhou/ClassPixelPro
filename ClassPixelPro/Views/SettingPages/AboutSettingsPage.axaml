@@ -142,7 +142,22 @@
                                              CommandParameter="https://class.imzcz.cn/#/docs">
                                 <TextBlock Text="帮助文档"/>
                             </HyperlinkButton>
+                            <HyperlinkButton Click="UriNavigationCommands_OnClick"
+                                             CommandParameter="https://github.com/CaizheZhou/ClassPixelPro">
+                                <TextBlock Text="开源仓库"/>
+                            </HyperlinkButton>
+                            <HyperlinkButton Click="UriNavigationCommands_OnClick"
+                                             CommandParameter="https://github.com/ClassIsland/ClassIsland">
+                                <TextBlock Text="原项目 ClassIsland"/>
+                            </HyperlinkButton>
                         </WrapPanel>
+                    </controls3:SettingsExpanderItem.Footer>
+                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="开源信息">
+                    <controls3:SettingsExpanderItem.Footer>
+                        <TextBlock Text="本项目基于 ClassIsland 二次开发，遵循 GPL-3.0 协议开源；感谢原项目作者 HelloWRC 及社区贡献者。"
+                                   FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
                     </controls3:SettingsExpanderItem.Footer>
                 </controls3:SettingsExpanderItem>
 

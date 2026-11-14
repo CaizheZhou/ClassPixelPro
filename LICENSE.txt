@@ -1,3 +1,13 @@
+ClassPixelPro
+Copyright (c) 2023-2026 CaizheZhou
+
+ClassPixelPro is a fork of ClassIsland (https://github.com/ClassIsland/ClassIsland)
+by the ClassIsland authors, licensed under the GNU General Public License v3.0.
+This derivative work is distributed under the same license; the original
+license text follows unchanged.
+
+================================================================================
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
