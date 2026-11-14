@@ -8,6 +8,11 @@ ClassPixelPro 是一款适用于班级多媒体屏幕的跨平台课表信息显
 
 </div>
 
+> [!IMPORTANT]
+> **本项目基于 [ClassIsland](https://github.com/ClassIsland/ClassIsland) 二次开发**，遵循 **GPL-3.0** 开源协议发布（详见 [LICENSE.txt](LICENSE.txt)）。感谢原项目作者 [HelloWRC](https://github.com/HelloWRC) 与社区贡献者。
+> 本仓库（[CaizheZhou/ClassPixelPro](https://github.com/CaizheZhou/ClassPixelPro)）为二开仓库，全部源码公开；衍生作品同样以 GPL-3.0 开源。
+
+
 ## 构建
 
 1. 安装 [.NET 8.0 SDK](https://dotnet.microsoft.com/zh-cn/download/dotnet/8.0)、PowerShell Core 与 Git。
