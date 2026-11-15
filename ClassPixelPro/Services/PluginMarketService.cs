@@ -472,9 +472,13 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
                     continue;
                 }
                 plugin.IsAvailableOnMarket = true;
-                plugin.RealIconPath = plugin.RealIconPath.Replace("{root}", root);
-                plugin.Manifest.Readme = plugin.Manifest.Readme.Replace("{root}", root);
-                plugin.IsNotSupportCurrentOS = !plugin.Manifest.SupportedOSPlatforms.Contains(_currentOSPlatform);
+                // 上游索引个别条目可能缺 Icon/Readme 字段，判空防止整个市场加载被 NRE 打断
+                if (!string.IsNullOrEmpty(plugin.RealIconPath))
+                    plugin.RealIconPath = plugin.RealIconPath.Replace("{root}", root);
+                if (!string.IsNullOrEmpty(plugin.Manifest.Readme))
+                    plugin.Manifest.Readme = plugin.Manifest.Readme.Replace("{root}", root);
+                plugin.IsNotSupportCurrentOS = plugin.Manifest.SupportedOSPlatforms == null ||
+                                               !plugin.Manifest.SupportedOSPlatforms.Contains(_currentOSPlatform);
                 MergedPlugins[id] = plugin;
             }
         }

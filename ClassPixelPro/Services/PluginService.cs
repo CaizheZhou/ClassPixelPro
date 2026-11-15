@@ -71,17 +71,32 @@ public class PluginService : IPluginService
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .Build();
 
+        var failedDir = Path.Combine(PluginsPkgRootPath, "_failed");
         foreach (var pkgPath in Directory.EnumerateFiles(PluginsPkgRootPath).Where(x => Path.GetExtension(x) == IPluginService.PluginPackageExtension))
         {
             try
             {
                 bool isEnabledBefore = true;
                 using var pkg = ZipFile.OpenRead(pkgPath);
-                var mf = pkg.GetEntry(PluginManifestFileName);
+                // manifest.yml 可能在 zip 顶层，也可能被第三方打包工具嵌在子目录里——全包搜索
+                var mf = pkg.GetEntry(PluginManifestFileName)
+                         ?? pkg.Entries.FirstOrDefault(x => x.FullName.EndsWith(PluginManifestFileName, StringComparison.OrdinalIgnoreCase));
                 if (mf == null)
+                {
+                    Console.WriteLine($"无法处理插件包 {Path.GetFileName(pkgPath)}：包内找不到 {PluginManifestFileName}，已移至 _failed 目录保留现场。");
+                    Directory.CreateDirectory(failedDir);
+                    File.Move(pkgPath, Path.Combine(failedDir, Path.GetFileName(pkgPath)), true);
                     continue;
+                }
                 var mfText = new StreamReader(mf.Open()).ReadToEnd();
                 var manifest = deserializer.Deserialize<PluginManifest>(mfText);
+                if (manifest == null || string.IsNullOrWhiteSpace(manifest.Id))
+                {
+                    Console.WriteLine($"无法处理插件包 {Path.GetFileName(pkgPath)}：manifest 解析失败，已移至 _failed 目录。");
+                    Directory.CreateDirectory(failedDir);
+                    File.Move(pkgPath, Path.Combine(failedDir, Path.GetFileName(pkgPath)), true);
+                    continue;
+                }
                 var targetPath = Path.Combine(PluginsRootPath, manifest.Id);
                 Console.Write($"正在处理插件安装: {manifest.Name}({manifest.Id},{manifest.Version})...");
                 if (Directory.Exists(targetPath))
@@ -93,19 +108,43 @@ public class PluginService : IPluginService
                     Directory.Delete(targetPath, true);
                 }
                 Directory.CreateDirectory(targetPath);
-                ZipFile.ExtractToDirectory(pkgPath, targetPath);
+                // zip 内 manifest 若在子目录（嵌套打包），把该子目录的内容视为插件根提取
+                var prefix = mf.FullName == PluginManifestFileName
+                    ? ""
+                    : mf.FullName[..(mf.FullName.LastIndexOf('/') + 1)];
+                foreach (var entry in pkg.Entries.Where(x => !string.IsNullOrEmpty(x.Name) && x.FullName.StartsWith(prefix)))
+                {
+                    var rel = entry.FullName[prefix.Length..];
+                    if (string.IsNullOrEmpty(rel)) continue;
+                    var outPath = Path.Combine(targetPath, rel);
+                    if (entry.FullName.EndsWith("/"))
+                    {
+                        Directory.CreateDirectory(outPath);
+                        continue;
+                    }
+                    Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+                    using var src = entry.Open();
+                    using var dst = File.Create(outPath);
+                    src.CopyTo(dst);
+                }
                 // ClassIsland.* -> ClassPixelPro.* IL 兼容重写：上游社区插件是针对 ClassIsland 程序集编译的，
                 // 不重写则引用解析失败、插件无法加载
                 Helpers.PluginAssemblyCompat.EnsureRewritten(targetPath, manifest);
                 if(!isEnabledBefore) File.WriteAllText(Path.Combine(targetPath, ".disabled"), "");
                 InstalledPlugins.Add(manifest);
+                File.Delete(pkgPath);
+                Console.WriteLine("完成!");
             }
             catch (Exception e)
             {
-                Console.WriteLine(e);
+                Console.WriteLine($"插件包 {Path.GetFileName(pkgPath)} 安装失败：{e.Message}（保留到 _failed 目录）");
+                try
+                {
+                    Directory.CreateDirectory(failedDir);
+                    File.Move(pkgPath, Path.Combine(failedDir, Path.GetFileName(pkgPath)), true);
+                }
+                catch { }
             }
-            File.Delete(pkgPath);
-            Console.WriteLine("完成!");
         }
     }
 

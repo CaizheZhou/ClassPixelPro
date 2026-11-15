@@ -23,7 +23,29 @@ public static class PluginAssemblyCompat
 {
     private const string OldPrefix = "ClassIsland";
     private const string NewPrefix = "ClassPixelPro";
-    private const string MarkerFileName = ".ilcompat";
+    /// <summary>兼容重写标记。v1（".ilcompat"）是 2.3.6 的产物——当时存在 TypeRef 未改写的顺序
+    /// bug，其标记下的插件程序集是半改写残次品，因此 2.3.6.2 起改用 v2 标记并强制重写所有 v1 产物。</summary>
+    private const string MarkerFileName = ".ilcompat-v2";
+    private const string LegacyMarkerFileName = ".ilcompat";
+
+    /// <summary>
+    /// 宿主程序集的精确映射白名单（ClassIsland.* → ClassPixelPro.*）。
+    /// 只重写命中的引用——插件自身的程序集/命名空间（如 ClassIsland.AISmartClass 这种以
+    /// ClassIsland 开头的插件命名空间）、插件之间的引用一律不动，避免错误改写指向不存在的类型。
+    /// </summary>
+    private static readonly Dictionary<string, string> HostAssemblyMap = new(StringComparer.Ordinal)
+    {
+        ["ClassIsland.Core"] = "ClassPixelPro.Core",
+        ["ClassIsland.Shared"] = "ClassPixelPro.Shared",
+        ["ClassIsland.Shared.IPC"] = "ClassPixelPro.Shared.IPC",
+        ["ClassIsland.Desktop"] = "ClassPixelPro.Desktop",
+        ["ClassIsland"] = "ClassPixelPro",
+        ["ClassIsland.Platforms.Windows"] = "ClassPixelPro.Platforms.Windows",
+        ["ClassIsland.Platforms.Linux"] = "ClassPixelPro.Platforms.Linux",
+        ["ClassIsland.Platforms.MacOs"] = "ClassPixelPro.Platforms.MacOs",
+        ["ClassIsland.Platforms.Abstractions"] = "ClassPixelPro.Platforms.Abstractions",
+        ["ClassIsland.PluginSdk"] = "ClassPixelPro.PluginSdk",
+    };
 
     /// <summary>
     /// 确保插件目录内的程序集已完成兼容重写（幂等：目录带 .ilcompat 标记时跳过）。
@@ -33,8 +55,12 @@ public static class PluginAssemblyCompat
         try
         {
             var marker = Path.Combine(pluginFolder, MarkerFileName);
+            var legacyMarker = Path.Combine(pluginFolder, LegacyMarkerFileName);
             if (File.Exists(marker))
                 return;
+            // 2.3.6 的 v1 标记产物是半改写残次品（TypeRef 未改写），删除旧标记强制重新重写
+            if (File.Exists(legacyMarker))
+                File.Delete(legacyMarker);
             var (rewritten, failed) = RewriteFolder(pluginFolder);
             File.WriteAllText(marker,
                 $"ClassIsland->ClassPixelPro IL 兼容重写：成功 {rewritten} 个程序集，失败 {failed} 个（{DateTime.Now:yyyy-MM-dd HH:mm:ss}）");
@@ -83,23 +109,30 @@ public static class PluginAssemblyCompat
         using var asm = AssemblyDefinition.ReadAssembly(new MemoryStream(File.ReadAllBytes(path)), readerParams);
 
         var needsRewrite =
-            asm.MainModule.AssemblyReferences.Any(r => r.Name != null && r.Name.StartsWith(OldPrefix, StringComparison.Ordinal));
+            asm.MainModule.AssemblyReferences.Any(r => r.Name != null && HostAssemblyMap.ContainsKey(r.Name));
         if (!needsRewrite)
             return false;
 
-        // 1) 程序集引用：ClassIsland.Core -> ClassPixelPro.Core、ClassIsland -> ClassPixelPro（前缀整体替换）
-        foreach (var ar in asm.MainModule.AssemblyReferences.ToList())
-        {
-            if (ar.Name != null && ar.Name.StartsWith(OldPrefix, StringComparison.Ordinal))
-                ar.Name = NewPrefix + ar.Name[OldPrefix.Length..];
-        }
-
-        // 2) 类型引用命名空间：ClassIsland.Core.Services.* -> ClassPixelPro.Core.Services.*
-        //    （只改 TypeRef 表，不动插件自身的 TypeDef；嵌套类型的 Namespace 即其外层命名空间）
+        // 1) 类型引用：必须在程序集引用改名**之前**处理——TypeRef 的 ResolutionScope 此刻还是
+        //    旧名（ClassIsland.Core），用白名单旧名匹配 scope。若先改程序集名再查 scope，
+        //    白名单（旧名键）永不命中，命名空间将全部残留导致类型解析失败（2.3.6 的顺序 bug）。
+        //    仅重写 ResolutionScope 指向宿主白名单程序集的 TypeRef；插件自身命名空间
+        //    （namespace ClassIsland.* 开头的插件代码）与插件间引用一律不动。
         foreach (var tr in asm.MainModule.GetTypeReferences())
         {
-            if (tr.Namespace != null && tr.Namespace.StartsWith(OldPrefix, StringComparison.Ordinal))
+            if (tr.Namespace == null || !tr.Namespace.StartsWith(OldPrefix, StringComparison.Ordinal))
+                continue;
+            var scopeName = ResolveScopeAssemblyName(tr);
+            if (scopeName != null && HostAssemblyMap.ContainsKey(scopeName))
                 tr.Namespace = NewPrefix + tr.Namespace[OldPrefix.Length..];
+        }
+
+        // 2) 程序集引用：精确命中白名单才改（ClassIsland.Core -> ClassPixelPro.Core 等）。
+        //    插件自身程序集（如 ClassIsland.AISmartClass）与第三方引用不在白名单，保持原样。
+        foreach (var ar in asm.MainModule.AssemblyReferences.ToList())
+        {
+            if (ar.Name != null && HostAssemblyMap.TryGetValue(ar.Name, out var mapped))
+                ar.Name = mapped;
         }
 
         // 3) 写回（不带符号），并移除旧的调试符号文件避免符号不匹配
@@ -109,5 +142,28 @@ public static class PluginAssemblyCompat
         if (File.Exists(pdb))
             File.Delete(pdb);
         return true;
+    }
+
+    /// <summary>
+    /// 解析 TypeRef 最终指向的程序集名（嵌套类型沿 DeclaringType 递归向上）。
+    /// 返回 null 表示指向当前模块自身（插件程序集内部的引用）。
+    /// </summary>
+    private static string? ResolveScopeAssemblyName(TypeReference tr)
+    {
+        TypeReference current = tr;
+        for (int i = 0; i < 32 && current != null; i++)
+        {
+            switch (current.Scope)
+            {
+                case AssemblyNameReference anr:
+                    return anr.Name;
+                case TypeReference outer:
+                    current = outer;   // 嵌套类型：继续向上
+                    continue;
+                default:
+                    return null;       // ModuleReference / null（自身模块）
+            }
+        }
+        return null;
     }
 }
