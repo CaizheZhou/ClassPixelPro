@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using ClassPixelPro.Core.Exceptions;
 using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -350,7 +351,25 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
             spanDownload.Finish(SpanStatus.Ok);
 
             var spanValidateChecksum = transaction.StartChild("validate");
-            ChecksumHelper.VerifyChecksum(archive, md5);
+            try
+            {
+                ChecksumHelper.VerifyChecksum(archive, md5);
+            }
+            catch (ChecksumUnMatchException)
+            {
+                // 校验失败且能完整解析为 zip：多半是上游刚发布了新版本而插件市场索引尚未更新，
+                // 索引里的 MD5 还是旧包的值。给出可行动的提示，而不是莫名的校验错误。
+                bool looksLikePackage = false;
+                try
+                {
+                    using var probe = ZipFile.OpenRead(archive);
+                    looksLikePackage = probe.Entries.Any(x => x.FullName.EndsWith("manifest.yml", StringComparison.OrdinalIgnoreCase));
+                }
+                catch { }
+                if (looksLikePackage)
+                    throw new Exception($"插件 {id} 的安装包与市场索引的校验值不匹配。这通常是因为作者刚发布了新版本、插件市场索引尚未同步，请稍后重试或从插件主页直接下载。");
+                throw;
+            }
             spanValidateChecksum.Finish(SpanStatus.Ok);
 
             var spanMoveToCache = transaction.StartChild("moveToCache");
