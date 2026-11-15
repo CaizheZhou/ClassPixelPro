@@ -94,6 +94,9 @@ public class PluginService : IPluginService
                 }
                 Directory.CreateDirectory(targetPath);
                 ZipFile.ExtractToDirectory(pkgPath, targetPath);
+                // ClassIsland.* -> ClassPixelPro.* IL 兼容重写：上游社区插件是针对 ClassIsland 程序集编译的，
+                // 不重写则引用解析失败、插件无法加载
+                Helpers.PluginAssemblyCompat.EnsureRewritten(targetPath, manifest);
                 if(!isEnabledBefore) File.WriteAllText(Path.Combine(targetPath, ".disabled"), "");
                 InstalledPlugins.Add(manifest);
             }
@@ -141,6 +144,8 @@ public class PluginService : IPluginService
             {
                 continue;
             }
+            // 存量已安装插件与外部插件目录：补做 ClassIsland.* -> ClassPixelPro.* IL 兼容重写（幂等）
+            Helpers.PluginAssemblyCompat.EnsureRewritten(Path.GetFullPath(pluginDir), manifest);
             var info = new PluginInfo
             {
                 Manifest = manifest,
