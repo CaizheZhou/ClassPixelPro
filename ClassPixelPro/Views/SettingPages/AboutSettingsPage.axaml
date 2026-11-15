@@ -153,27 +153,14 @@
                         </WrapPanel>
                     </controls3:SettingsExpanderItem.Footer>
                 </controls3:SettingsExpanderItem>
-                <controls3:SettingsExpanderItem Content="开源信息">
-                    <controls3:SettingsExpanderItem.Footer>
-                        <StackPanel Spacing="6">
-                            <TextBlock FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       Text="ClassPixelPro 是基于 ClassIsland 二次开发的课堂信息显示工具，源码全部公开，遵循 GPL-3.0 协议开源。"/>
-                            <TextBlock FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       Text="原项目：ClassIsland（作者 HelloWRC 及社区贡献者）　上游仓库：github.com/ClassIsland/ClassIsland　上游官网：classisland.tech"/>
-                            <TextBlock FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       Text="本项目仓库：github.com/CaizheZhou/ClassPixelPro　发布仓库：github.com/CaizheZhou/ClassPixelPro-Releases　项目官网：class.imzcz.cn　服务状态：status.imzcz.cn"/>
-                            <TextBlock FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       Text="开源协议：GPL-3.0（本程序与上游 ClassIsland 均遵循）。完整源代码可通过上方仓库获取；依照 GPL-3.0 第 15/16 条，本程序不提供任何担保。"/>
-                            <TextBlock FontSize="12" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       Text="插件来源：插件市场聚合 ClassIsland 社区插件与本项目收录的插件，各插件的版权归其作者所有，安装使用请遵循各插件仓库标注的许可协议。"/>
-                        </StackPanel>
-                    </controls3:SettingsExpanderItem.Footer>
-                </controls3:SettingsExpanderItem>
+                <controls3:SettingsExpanderItem Content="开源信息"
+                                                Description="ClassPixelPro 是基于 ClassIsland 二次开发的课堂信息显示工具，源码全部公开，遵循 GPL-3.0 协议开源。"/>
+                <controls3:SettingsExpanderItem Content="来源与仓库"
+                                                Description="原项目：ClassIsland（作者 HelloWRC 及社区贡献者）；上游仓库 github.com/ClassIsland/ClassIsland，上游官网 classisland.tech；本项目仓库 github.com/CaizheZhou/ClassPixelPro，发布仓库 github.com/CaizheZhou/ClassPixelPro-Releases；项目官网 class.imzcz.cn，服务状态 status.imzcz.cn。"/>
+                <controls3:SettingsExpanderItem Content="开源协议"
+                                                Description="GPL-3.0（本程序与上游 ClassIsland 均遵循）。完整源代码可通过上方仓库获取；依照 GPL-3.0 第 15/16 条，本程序不提供任何担保。"/>
+                <controls3:SettingsExpanderItem Content="插件来源"
+                                                Description="插件市场聚合 ClassIsland 社区插件与本项目收录的插件，各插件的版权归其作者所有，安装使用请遵循各插件仓库标注的许可协议。"/>
 
             </controls3:SettingsExpander>
 
