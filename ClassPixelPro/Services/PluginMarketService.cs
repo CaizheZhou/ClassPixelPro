@@ -42,9 +42,10 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
 
     public static ObservableDictionary<string, string> FallbackMirrors { get; } = new()
     {
-        { "github", "https://github.com" },
-        { "ghproxy", "https://mirror.ghproxy.com/https://github.com" },
-        { "moeyy", "https://github.moeyy.xyz/https://github.com" }
+        // 索引拉取失败时的镜像展示兜底。原 github/ghproxy/moeyy 组合已全部失效
+        // （mirror.ghproxy.com 与 moeyy 停摆、GitHub 直连国内不可达），换成可用的加速镜像。
+        { "gh-proxy", "https://gh-proxy.com/https://github.com" },
+        { "gh-proxy-v4", "https://v4.gh-proxy.com/https://github.com" }
     };
 
     private bool _isLoadingPluginSource = false;
@@ -422,12 +423,30 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
             if (!File.Exists(indexPath))
                 continue;
             var index = Indexes[name] = ConfigureFileHelper.LoadConfig<PluginIndex>(indexPath);
-            var mirror = i.SelectedMirror;
+            // 镜像解析：服务端推荐（RecommendedMirror）优先——本地保存的选择可能指向已失效/不可达的
+            // 镜像（2026-11-15：mirror.ghproxy.com 与 moeyy 全部失效、GitHub 直连国内不可达，插件全部装不上）；
+            // 所选键不在镜像表中时回退到推荐镜像，再不行才取第一项。
+            var mirror = !string.IsNullOrWhiteSpace(index.RecommendedMirror) &&
+                         index.DownloadMirrors.ContainsKey(index.RecommendedMirror)
+                ? index.RecommendedMirror
+                : i.SelectedMirror;
             i.Mirrors = ConfigureFileHelper.CopyObject(index.DownloadMirrors);
+            i.SelectedMirror = mirror;
             if (!index.DownloadMirrors.TryGetValue(mirror, out var root))
             {
-                mirror = i.SelectedMirror = index.DownloadMirrors.First().Key;
-                root = index.DownloadMirrors.First().Value;
+                // 所选镜像已失效（如历史保存的 github/ghproxy/moeyy）：优先回退到服务端推荐镜像
+                var recommended = index.RecommendedMirror;
+                if (string.IsNullOrWhiteSpace(recommended) ||
+                    !index.DownloadMirrors.TryGetValue(recommended, out root))
+                {
+                    mirror = index.DownloadMirrors.First().Key;
+                    root = index.DownloadMirrors.First().Value;
+                }
+                else
+                {
+                    mirror = recommended;
+                }
+                i.SelectedMirror = mirror;
             }
             Logger.LogDebug("插件源 {} 选择的镜像根：{}", name, root);
             foreach (var plugin in index.Plugins.Where(x =>

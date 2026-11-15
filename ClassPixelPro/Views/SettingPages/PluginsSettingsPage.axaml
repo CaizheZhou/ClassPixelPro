@@ -573,6 +573,11 @@
                         </DockPanel>
                         <ProgressBar IsVisible="{Binding ViewModel.PluginMarketService.IsLoadingPluginSource}"
                                      IsIndeterminate="True"/>
+                        <!-- 插件来源与版权声明：市场聚合 ClassIsland 上游社区插件与本项目收录插件 -->
+                        <TextBlock Margin="2 8 2 4"
+                                   FontSize="11.5" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   Text="插件来源：ClassPixelPro 插件市场（聚合 ClassIsland 社区插件与本项目收录插件）。各插件版权归其作者所有，安装使用请遵循各插件仓库标注的开源协议；点击右侧「更多选项…」可查看插件主页。"/>
                     </StackPanel>
                     <ListBox Grid.Row="1"
                              ItemsSource="{Binding ViewModel.MergedPluginsFiltered.Items}"
