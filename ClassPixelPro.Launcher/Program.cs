@@ -29,6 +29,8 @@ else
 var root = Path.GetFullPath(Path.GetDirectoryName(Environment.ProcessPath) ?? "");
 var installation = Directory.GetDirectories(root)
     .Where(x => Path.GetFileName(x).StartsWith("app") &&
+                // app-current 是 Launcher 维护的固定路径 junction，不是真实版本目录
+                !Path.GetFileName(x).Equals("app-current", StringComparison.OrdinalIgnoreCase) &&
                 !(File.Exists(Path.Combine(x, ".destroy")) || File.Exists(Path.Combine(x, ".partial"))) &&
                 File.Exists(Path.Combine(x, executableName)))
     // 必须优先选带 .current 标记的目录：更新后会同时保留一个 .prev 旧版本目录
@@ -65,6 +67,44 @@ if (installation == null)
 }
 
 var exePath = Path.Combine(Path.Combine(installation, executableName));
+
+// Windows 防火墙按程序文件路径绑定规则：直接启动 app-{版本}-{n}/ 下的主程序，
+// 每次更新后目录名变化 → 防火墙规则失效 → 每次都要重新放行弹窗。
+// 这里维护一个固定路径 junction（app-current → 当前版本目录），主程序路径恒定，
+// 防火墙只需放行一次，后续更新不再弹窗。junction 是目录联接，普通用户无需管理员即可创建。
+#if Platforms_Windows
+if (OperatingSystem.IsWindows())
+{
+    var junction = Path.Combine(root, "app-current");
+    try
+    {
+        // 删除旧的联接（只删链接本身，不影响目标目录）
+        if (Directory.Exists(junction) || File.Exists(junction))
+        {
+            var attr = File.GetAttributes(junction);
+            Directory.Delete(junction, false);
+        }
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/c mklink /J \"{junction}\" \"{installation}\"",
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            UseShellExecute = false
+        };
+        using var mk = Process.Start(psi);
+        mk?.WaitForExit(10000);
+        if (Directory.Exists(Path.Combine(junction, executableName)))
+        {
+            exePath = Path.Combine(junction, executableName);
+        }
+    }
+    catch (Exception e)
+    {
+        Console.Error.WriteLine($"无法创建 app-current 联接，改用版本目录直接启动（不影响运行，仅防火墙每次更新需重新放行）：{e.Message}");
+    }
+}
+#endif
 
 // 自动添加可执行权限，防止出现无法运行的问题 https://github.com/ClassPixelPro/ClassPixelPro/issues/1212
 #if Platforms_Linux
