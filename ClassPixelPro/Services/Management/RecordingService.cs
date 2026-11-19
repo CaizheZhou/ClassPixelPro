@@ -423,7 +423,9 @@ public sealed class RecordingService : IDisposable
         try
         {
             var ticketUrl = $"{baseUrl}/api/mgmt/{orgId}/serverless/recording-upload-ticket?cuid={cuid}";
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+            // 大视频（可达 2GB）上传可能需要较长时间，尤其是教室上行带宽有限时；
+            // 10 分钟超时会中断 1GB 级上传，放宽到 30 分钟
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
             using var ticketResp = await http.PostAsync(ticketUrl,
                 new StringContent(JsonSerializer.Serialize(new { size, kind }),
                     System.Text.Encoding.UTF8, "application/json"));
@@ -464,8 +466,12 @@ public sealed class RecordingService : IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "上传录制产物失败：{Path}", path);
+            // 上传超时（HttpClient.Timeout 取消）给管理员可行动的提示，而不是一串英文
+            var msg = ex is TaskCanceledException
+                ? "上传超时：30 分钟内未能完成上传。教室网络上行带宽不足以在限定时间内传输该文件，请检查网络或缩短录制时长。"
+                : ex.Message;
             await ReportResultAsync(baseUrl, orgId, cuid, planId, kind, path, size, duration, startedAt, endedAt,
-                "failed", ex.Message).ConfigureAwait(false);
+                "failed", msg).ConfigureAwait(false);
             TryDelete(path);
         }
     }
