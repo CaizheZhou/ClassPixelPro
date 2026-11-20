@@ -16,4 +16,14 @@ public class PluginIndexItem : PluginInfo
     /// 插件最新版本下载MD5
     /// </summary>
     public string DownloadMd5 { get; set; } = "";
+
+    /// <summary>
+    /// 插件市场标记：此插件已知与当前宿主架构不兼容（由索引下发）。
+    /// </summary>
+    public bool Incompatible { get; set; }
+
+    /// <summary>
+    /// 不兼容原因，用于市场列表展示。
+    /// </summary>
+    public string IncompatibleReason { get; set; } = "";
 }

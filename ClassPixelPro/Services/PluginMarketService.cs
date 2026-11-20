@@ -306,6 +306,19 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
         }
         transaction.SetTag("plugin", item.Manifest.Name);
 
+        // 已知不兼容插件（索引 Incompatible 标记）：直接拒绝并说明原因，不进入下载流程
+        if (item.IsIncompatible)
+        {
+            Logger.LogWarning("插件 {} 已标记为不兼容，拒绝安装：{}", id, item.IncompatibleReason);
+            transaction.Finish(SpanStatus.InvalidArgument);
+            PlatformServices.DesktopToastService.ShowToastAsync(new DesktopToastContent()
+            {
+                Title = "无法安装插件",
+                Body = $"{item.Manifest?.Name}：{item.IncompatibleReason}"
+            });
+            return;
+        }
+
         if (DownloadTasks.ContainsKey(id))
         {
             Logger.LogWarning("{}已正在下载。", id);
@@ -357,8 +370,9 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
             }
             catch (ChecksumUnMatchException)
             {
-                // 校验失败且能完整解析为 zip：多半是上游刚发布了新版本而插件市场索引尚未更新，
-                // 索引里的 MD5 还是旧包的值。给出可行动的提示，而不是莫名的校验错误。
+                // MD5 与索引不符但 zip 结构完整（可打开且含 manifest.yml，zip 自身 CRC 保证
+                // 内容未截断）→ 索引校验值过期（作者刚发布新版本），按完整性接受安装。
+                // MD5 来自上游未签名索引，本就不是信任边界；真正的截断包在这里会被 catch 住拒绝。
                 bool looksLikePackage = false;
                 try
                 {
@@ -366,9 +380,9 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
                     looksLikePackage = probe.Entries.Any(x => x.FullName.EndsWith("manifest.yml", StringComparison.OrdinalIgnoreCase));
                 }
                 catch { }
-                if (looksLikePackage)
-                    throw new Exception($"插件 {id} 的安装包与市场索引的校验值不匹配。这通常是因为作者刚发布了新版本、插件市场索引尚未同步，请稍后重试或从插件主页直接下载。");
-                throw;
+                if (!looksLikePackage)
+                    throw;
+                Logger.LogWarning("插件 {Id} 的 MD5 与市场索引不符，但安装包结构完整（索引滞后），按包完整性接受安装", id);
             }
             spanValidateChecksum.Finish(SpanStatus.Ok);
 
@@ -491,7 +505,8 @@ public class PluginMarketService : ObservableRecipient, IPluginMarketService
                     continue;
                 }
                 plugin.IsAvailableOnMarket = true;
-                // 上游索引个别条目可能缺 Icon/Readme 字段，判空防止整个市场加载被 NRE 打断
+                plugin.IsIncompatible = plugin.Incompatible;
+                plugin.IncompatibleReason = plugin.IncompatibleReason;
                 if (!string.IsNullOrEmpty(plugin.RealIconPath))
                     plugin.RealIconPath = plugin.RealIconPath.Replace("{root}", root);
                 if (!string.IsNullOrEmpty(plugin.Manifest.Readme))

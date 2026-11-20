@@ -202,6 +202,17 @@ public class PluginInfo : ObservableRecipient, IMarketplaceItemInfo
     }
 
     /// <summary>
+    /// 插件市场标记：此插件已知与当前宿主架构不兼容（如依赖 WPF / 打包缺文件）。
+    /// 由插件索引下发，市场列表灰显并禁用安装。
+    /// </summary>
+    public bool IsIncompatible { get; set; } = false;
+
+    /// <summary>
+    /// 不兼容原因（用于市场列表提示）。
+    /// </summary>
+    public string IncompatibleReason { get; set; } = "";
+
+    /// <summary>
     /// 插件下载量
     /// </summary>
     public long DownloadCount

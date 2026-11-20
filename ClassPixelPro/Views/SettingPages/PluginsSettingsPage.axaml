@@ -145,6 +145,7 @@
                                         <Binding Path="IsUpdateAvailable" />
                                         <Binding Path="IsAvailableOnMarket"/>
                                         <Binding Path="RestartRequired" Converter="{StaticResource InvertBooleanConverter}" Mode="OneWay"/>
+                                        <Binding Path="IsIncompatible" Converter="{StaticResource InvertBooleanConverter}"/>
                                     </MultiBinding>
                                 </Button.IsVisible>
                                 <ci:IconText Glyph="&#xE1A0;" Text="更新"/>
@@ -170,12 +171,19 @@
                                     <Binding Path="IsLocal" Converter="{StaticResource InvertBooleanConverter}"/>
                                     <Binding Path="IsAvailableOnMarket"/>
                                     <Binding Path="RestartRequired" Converter="{StaticResource InvertBooleanConverter}"/>
+                                    <Binding Path="IsIncompatible" Converter="{StaticResource InvertBooleanConverter}"/>
                                 </MultiBinding>
                             </WrapPanel.IsVisible>
                             <Button Click="ButtonInstallPlugin_OnClick" Classes="accent">
                                 <ci:IconText Glyph="&#xE0D3;" Text="安装"/>
                             </Button>
                         </WrapPanel>
+                        <!-- 已知不兼容插件：显示原因，安装/更新入口已隐藏 -->
+                        <controls2:InfoBar IsOpen="{Binding IsIncompatible}"
+                                           Severity="Warning"
+                                           Message="{Binding IncompatibleReason}">
+                            <controls2:InfoBar.Title>此插件与当前版本的 ClassPixelPro 不兼容</controls2:InfoBar.Title>
+                        </controls2:InfoBar>
                         <WrapPanel Orientation="Horizontal"
                                    Margin="0 0 0 4">
                             <Button VerticalAlignment="Center"

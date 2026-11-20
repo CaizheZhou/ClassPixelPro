@@ -397,7 +397,63 @@ public sealed class RecordingService : IDisposable
         _cameraCapture.ReleaseCamera();
     }
 
+    /// <summary>
+    /// 上传包装：网络类失败（非超时）自动重试一次；超时属于带宽问题，重试无意义，直接报可行动原因。
+    /// </summary>
     private async Task UploadAsync(string planId, string kind, string path, DateTime startedAt, DateTime endedAt, TimeSpan duration)
+    {
+        try
+        {
+            await UploadCoreAsync(planId, kind, path, startedAt, endedAt, duration);
+        }
+        catch (TaskCanceledException)
+        {
+            await ReportFailureAsync(planId, kind, path, startedAt, endedAt, duration,
+                "上传超时：30 分钟内未能完成上传。教室网络上行带宽不足以在限定时间内传输该文件，请检查网络或缩短录制时长。").ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // 网络抖动类失败：延迟 5 秒重试一次，仍失败才落失败记录
+            _logger.LogWarning(ex, "上传录制产物失败（首次），5 秒后重试：{Path}", path);
+            await Task.Delay(5000).ConfigureAwait(false);
+            try
+            {
+                await UploadCoreAsync(planId, kind, path, startedAt, endedAt, duration);
+                _logger.LogInformation("录制产物重试上传成功：{Path}", path);
+            }
+            catch (TaskCanceledException ex2)
+            {
+                _logger.LogWarning(ex2, "重试上传超时：{Path}", path);
+                await ReportFailureAsync(planId, kind, path, startedAt, endedAt, duration,
+                    "上传超时：30 分钟内未能完成上传（已重试一次）。教室网络上行带宽不足，请检查网络或缩短录制时长。").ConfigureAwait(false);
+            }
+            catch (Exception ex2)
+            {
+                _logger.LogWarning(ex2, "上传录制产物重试后仍失败：{Path}", path);
+                await ReportFailureAsync(planId, kind, path, startedAt, endedAt, duration,
+                    ex2.Message).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>解析集控上下文并落失败记录 + 清理临时文件（供包装层统一收尾）。</summary>
+    private async Task ReportFailureAsync(string planId, string kind, string path, DateTime startedAt, DateTime endedAt, TimeSpan duration, string message)
+    {
+        var mgmt = IAppHost.TryGetService<IManagementService>();
+        var baseUrl = mgmt?.GetManagementBaseUrl();
+        var orgId = mgmt?.GetOrganizationId();
+        var cuid = mgmt?.Persist.ClientUniqueId.ToString() ?? "";
+        var size = 0L;
+        try { size = new FileInfo(path).Length; } catch { }
+        if (!string.IsNullOrEmpty(baseUrl) && !string.IsNullOrEmpty(orgId))
+        {
+            await ReportResultAsync(baseUrl, orgId, cuid, planId, kind, path, size, duration, startedAt, endedAt,
+                "failed", message).ConfigureAwait(false);
+        }
+        TryDelete(path);
+    }
+
+    private async Task UploadCoreAsync(string planId, string kind, string path, DateTime startedAt, DateTime endedAt, TimeSpan duration)
     {
         var mgmt = IAppHost.TryGetService<IManagementService>();
         var baseUrl = mgmt?.GetManagementBaseUrl();
@@ -463,16 +519,10 @@ public sealed class RecordingService : IDisposable
             _logger.LogInformation("录制产物已上传：{Path} → {Object}", path, objectPath);
             TryDelete(path);
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.LogWarning(ex, "上传录制产物失败：{Path}", path);
-            // 上传超时（HttpClient.Timeout 取消）给管理员可行动的提示，而不是一串英文
-            var msg = ex is TaskCanceledException
-                ? "上传超时：30 分钟内未能完成上传。教室网络上行带宽不足以在限定时间内传输该文件，请检查网络或缩短录制时长。"
-                : ex.Message;
-            await ReportResultAsync(baseUrl, orgId, cuid, planId, kind, path, size, duration, startedAt, endedAt,
-                "failed", msg).ConfigureAwait(false);
-            TryDelete(path);
+            // 异常交给上层包装（UploadAsync）统一处理：超时直报原因，其余重试一次
+            throw;
         }
     }
 

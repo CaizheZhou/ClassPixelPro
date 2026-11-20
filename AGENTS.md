@@ -4,13 +4,39 @@
 - Main solution: `ClassPixelPro.sln`; platform-filtered solutions: `ClassPixelPro.Filter.Linux.slnf`, `ClassPixelPro.Filter.MacOs.slnf`.
 - Runtime app entrypoint: `ClassPixelPro.Desktop/Program.cs`; Avalonia app/library: `ClassPixelPro/`; shared UI/services: `ClassPixelPro.Core/`.
 - Platform services: `platforms/ClassPixelPro.Platforms.{Windows,Linux,MacOs}`, wired by `CrossPlatformProps.props`.
-- `ClassPixelPro.Shared` and `ClassPixelPro.Shared.IPC` multi-target `net8.0;net472`; avoid APIs unavailable on `net472`.
+- `ClassPixelPro.Shared` and `ClassPixelPro.Shared.IPC` multi-target `net8.0;net472` **on Windows only**; off-Windows (Linux/macOS) they target `net8.0` only (net472 unavailable there). When targeting net472, avoid APIs unavailable on net472.
 - `ClassPixelPro.Launcher` targets `net9.0`; most app projects target `net8.0`.
 
+## Architecture / Layering
+Dependency direction (low to high):
+- `ClassPixelPro.Platforms.Abstractions` -> platform contracts (`IPlatformService`, etc.).
+- `platforms/ClassPixelPro.Platforms.{Windows,Linux,MacOs}` -> OS-specific implementations, selected by `CrossPlatformProps.props`.
+- `ClassPixelPro.Shared` / `ClassPixelPro.Shared.IPC` -> multi-target `net8.0;net472` shared logic + IPC contract.
+- `ClassPixelPro.Core` -> `net8.0`, UI-agnostic controls/services (Avalonia-based).
+- `ClassPixelPro` -> main app library (`net8.0`, `UseWPF=false`; Avalonia UI, MVVM/ReactiveUI/DynamicData).
+- `ClassPixelPro.Desktop` -> exe entrypoint (`Program.cs`); references exactly one platform assembly.
+- `ClassPixelPro.Launcher` -> `net9.0` native-AOT self-contained bootstrap.
+Side libraries: `ClassPixelPro.PluginSdk` (`.cipx` authoring), `ClassPixelPro.ExamplePlugin` (reference plugin), `ClassPixelPro.DocsGenerator`, `Demos/ClassPixelPro.IpcDemo`.
+Vendored (git submodule / in-tree): `vendors/EdgeTtsSharp`, `vendors/System.Device.Location`, `vendors/PhainonDistributionCenter.Shared`.
+
+Note: the core app is Avalonia-based (`<UseWPF>false</UseWPF>`), despite `doc/Dependencies.md` still listing WPF libraries (that doc looks stale).
+
+## IPC / Cross-Process Communication
+External clients and plugins communicate with the running app through `ClassPixelPro.Shared.IPC` (dotnetCampus.Ipc + gRPC/Protobuf; see `IpcClient` and `Abstractions/Services/*`). `Demos/ClassPixelPro.IpcDemo` is a working example. Full protocol docs: https://docs.classpixelpro.tech/dev/
+
+## Plugin Model
+Plugins ship as `.cipx` packages, authored against `ClassPixelPro.PluginSdk`; `ClassPixelPro.ExamplePlugin` is the reference implementation (its README renders in Settings -> Plugins). The NUKE target `InitPluginDevEnv` wires a dev loop pointing at `out/ClassPixelPro_Dev` -- do not run it during normal verification.
+
+## Further Reading (doc/)
+- `doc/Dependencies.md`, `doc/NotificationHostService.md`, `doc/AttachedSettings.md`
+- `doc/Design/Cyrene_MSP/` (design notes + `command_flow.md`)
+- `doc/Contributing/Scopes.md` (valid Conventional-Commit scope names -- read before committing)
+- `doc/ChangeLogs/` (per-version `App.md` release notes)
+
 ## SDK And Restore
-- `global.json` requests .NET SDK `9.0.100` with `rollForward: latestFeature`; launcher/native-AOT work needs .NET 9 SDK, not just .NET 8.
+- `global.json` requests .NET SDK `9.0.100` with `rollForward: latestMajor` and `allowPrerelease: true`; launcher/native-AOT work needs .NET 9 SDK, not just .NET 8.
 - Repo depends on `vendors/EdgeTtsSharp` (`classpixelpro-v2` branch). If missing, run `git submodule update --init --recursive`.
-- CI uses GitHub Package Registry: `https://nuget.pkg.github.com/ClassPixelPro/index.json`.
+- NuGet feed `https://nuget.pkg.github.com/ClassPixelPro/index.json` is referenced here as the CI Package Registry, but no `NuGet.config`/package source referencing it exists in the private repo source (AppVeyor uses its own project feed). Verify before relying on it.
 
 ## Build Commands
 - Desktop app: `dotnet build ClassPixelPro.Desktop/ClassPixelPro.Desktop.csproj -c Debug`
@@ -119,3 +145,17 @@ Only when explicitly requested:
 ```bash
 ./build.ps1 PublishApp --OsName windows --Arch x64 --Package folder --BuildType full --BuildName appBase --AppVersion 0.0.0.0
 ```
+
+## Dual-Repo Publishing
+The desktop app uses a two-repository publishing model:
+- Private repo `CaizheZhou/ClassPixelPro` holds the source (local working copy is `ClassPixelPro/`).
+- Public repo `CaizheZhou/ClassPixelPro-Releases` holds the automated build/release pipeline (local mirror `ClassPixelPro-Releases/`).
+Trigger flow:
+- Tag the private repo with a `2.*` version (see `VERSION_CONVENTION.md`) and push -> `ClassPixelPro/.github/workflows/trigger-build.yml` fires `gh workflow run build-and-release.yml` on the public repo via `PUBLIC_REPO_PAT`.
+- `ClassPixelPro-Releases/.github/workflows/build-and-release.yml` checks out the private repo at that tag (`PRIVATE_REPO_TOKEN`, `submodules: recursive`), builds with `pack.ps1` (NOT NUKE `build.ps1`), generates release notes from the public repo root `CHANGELOG.md`, creates the GitHub Release, then POSTs the distribution to the website backend (`/api/admin/distributions/create-with-url`) so the in-app updater sees it.
+Implications:
+- Build/release CI lives in the PUBLIC repo, not the private source repo. Local source changes are built by the public repo pipeline.
+- CI build entry is `pack.ps1`, not NUKE `build.ps1`.
+- `CHANGELOG.md` for releases is maintained in the public `ClassPixelPro-Releases` repo, not the private repo.
+- Releases are driven by git tags (`2.*`); do not edit CI workflows in the private repo expecting them to build.
+- There is also an AppVeyor pipeline (`appveyor.yml`) that builds via `tools/build-appveyor.ps1` (-> `tools/release-gen/publish.ps1`) and deploys to GitHub Releases on tag; it is independent of the public-repo GitHub Actions flow.
